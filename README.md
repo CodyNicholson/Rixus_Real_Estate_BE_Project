@@ -12,4 +12,4 @@ Go REST API backed by Postgres.
 Tables are created on startup (`internal/db/schema.sql`, mirrored in `migrations/`).
 
 Endpoints: `GET /health`, `POST /api/auth/register`, `POST /api/auth/login` (both return `{"token": ...}`),
-`GET|POST /api/properties` (require an `Authorization: ****** header).
+`GET|POST /api/properties` (require a JWT in the `Authorization: ****** header).

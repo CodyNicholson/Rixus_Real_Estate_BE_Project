@@ -15,9 +15,20 @@ func TestSwaggerRoutes(t *testing.T) {
 	}
 	handler := s.Routes()
 
-	// Test GET /swagger redirect
-	req := httptest.NewRequest(http.MethodGet, "/swagger", nil)
+	// Test GET / root redirect
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusMovedPermanently {
+		t.Fatalf("expected 301 for /, got %d", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/swagger/" {
+		t.Fatalf("expected Location /swagger/, got %q", loc)
+	}
+
+	// Test GET /swagger redirect
+	req = httptest.NewRequest(http.MethodGet, "/swagger", nil)
+	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusMovedPermanently {
 		t.Fatalf("expected 301 for /swagger, got %d", rec.Code)

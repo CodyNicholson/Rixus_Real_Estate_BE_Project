@@ -29,5 +29,5 @@ Tables are created on startup (`internal/db/schema.sql`, mirrored in `migrations
 Endpoints: `GET /health`, `POST /api/login` (or `/api/auth/login`), `POST /api/register` (or `/api/auth/register`),
 `POST /api/refresh` (or `/api/auth/refresh`), `POST /api/logout` (or `/api/auth/logout`),
 `GET|POST /api/properties` (require a JWT in the `Authorization: Bearer <token>` header),
-`GET /swagger/` (interactive Swagger UI API documentation).
+`GET /swagger/` (interactive Swagger UI API documentation — navigating to `/`, `/swagger`, or `/docs` automatically redirects here).
 

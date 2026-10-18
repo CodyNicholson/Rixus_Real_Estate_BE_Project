@@ -44,6 +44,9 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /api/properties", authMW(http.HandlerFunc(s.listProperties)))
 	mux.Handle("POST /api/properties", authMW(http.HandlerFunc(s.createProperty)))
 
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/swagger/", http.StatusMovedPermanently)
+	})
 	mux.HandleFunc("GET /swagger", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/swagger/", http.StatusMovedPermanently)
 	})

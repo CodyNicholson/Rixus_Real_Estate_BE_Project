@@ -3,10 +3,14 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"net/mail"
+	"strings"
+	"time"
 
 	"github.com/CodyNicholson/Rixus_Real_Estate_BE_Project/internal/auth"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -27,7 +31,35 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/auth/login", s.login)
 	mux.Handle("GET /api/properties", authMW(http.HandlerFunc(s.listProperties)))
 	mux.Handle("POST /api/properties", authMW(http.HandlerFunc(s.createProperty)))
-	return s.cors(mux)
+
+	mux.HandleFunc("GET /swagger", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/swagger/", http.StatusMovedPermanently)
+	})
+	mux.HandleFunc("GET /swagger/", s.swaggerUI)
+	mux.HandleFunc("GET /swagger/openapi.json", s.openapiSpec)
+	mux.HandleFunc("GET /docs", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/swagger/", http.StatusMovedPermanently)
+	})
+	return s.logging(s.cors(mux))
+}
+
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusWriter) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (s *Server) logging(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(sw, r)
+		log.Printf("%s %s %d %s", r.Method, r.URL.Path, sw.status, time.Since(start).Round(time.Microsecond))
+	})
 }
 
 func (s *Server) cors(next http.Handler) http.Handler {
@@ -57,6 +89,7 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+		log.Printf("decode error on %s %s: %v", r.Method, r.URL.Path, err)
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return false
 	}
@@ -68,34 +101,68 @@ type credentials struct {
 	Password string `json:"password"`
 }
 
+type registerRequest struct {
+	Name      string `json:"name"`
+	Email     string `json:"email"`
+	Password  string `json:"password"`
+	UserRole  string `json:"user_role"`
+	UserRoleC string `json:"userRole"`
+}
+
 func (s *Server) register(w http.ResponseWriter, r *http.Request) {
-	var c credentials
-	if !decode(w, r, &c) {
+	var req registerRequest
+	if !decode(w, r, &req) {
 		return
 	}
-	if _, err := mail.ParseAddress(c.Email); err != nil {
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		log.Printf("register: name is required")
+		writeErr(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if _, err := mail.ParseAddress(req.Email); err != nil {
+		log.Printf("register: invalid email %q: %v", req.Email, err)
 		writeErr(w, http.StatusBadRequest, "invalid email")
 		return
 	}
 	// bcrypt only uses the first 72 bytes
-	if len(c.Password) < 8 || len(c.Password) > 72 {
+	if len(req.Password) < 8 || len(req.Password) > 72 {
+		log.Printf("register: password must be 8-72 characters (got %d)", len(req.Password))
 		writeErr(w, http.StatusBadRequest, "password must be 8-72 characters")
 		return
 	}
-	hash, err := auth.HashPassword(c.Password)
+	role := req.UserRole
+	if role == "" {
+		role = req.UserRoleC
+	}
+	role = strings.ToUpper(strings.TrimSpace(role))
+	if role == "" {
+		role = "VIEWER"
+	}
+	if role != "ADMIN" && role != "VIEWER" {
+		log.Printf("register: invalid user_role %q (must be ADMIN or VIEWER)", role)
+		writeErr(w, http.StatusBadRequest, "user_role must be ADMIN or VIEWER")
+		return
+	}
+
+	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
+		log.Printf("register: password hashing error: %v", err)
 		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	var id int64
 	err = s.DB.QueryRow(r.Context(),
-		`INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id`, c.Email, hash).Scan(&id)
+		`INSERT INTO users (name, email, password_hash, user_role) VALUES ($1, $2, $3, $4) RETURNING id`,
+		req.Name, req.Email, hash, role).Scan(&id)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			log.Printf("register: email %q already registered", req.Email)
 			writeErr(w, http.StatusConflict, "email already registered")
 			return
 		}
+		log.Printf("register: database insert error: %v", err)
 		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -111,7 +178,17 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	var hash string
 	err := s.DB.QueryRow(r.Context(),
 		`SELECT id, password_hash FROM users WHERE email = $1`, c.Email).Scan(&id, &hash)
-	if err != nil || !auth.CheckPassword(hash, c.Password) {
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			log.Printf("login: user not found: %s", c.Email)
+		} else {
+			log.Printf("login: database query error: %v", err)
+		}
+		writeErr(w, http.StatusUnauthorized, "invalid email or password")
+		return
+	}
+	if !auth.CheckPassword(hash, c.Password) {
+		log.Printf("login: invalid password for user: %s", c.Email)
 		writeErr(w, http.StatusUnauthorized, "invalid email or password")
 		return
 	}
@@ -121,6 +198,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 func (s *Server) issueToken(w http.ResponseWriter, id int64, status int) {
 	tok, err := auth.NewToken(s.JWTSecret, id)
 	if err != nil {
+		log.Printf("issueToken: token generation error for user %d: %v", id, err)
 		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -128,19 +206,20 @@ func (s *Server) issueToken(w http.ResponseWriter, id int64, status int) {
 }
 
 type Property struct {
-	ID          int64   `json:"id"`
-	Address     string  `json:"address"`
-	City        string  `json:"city"`
-	State       string  `json:"state"`
-	Zip         string  `json:"zip"`
-	MonthlyRent float64 `json:"monthlyRent"`
+	ID            int64   `json:"id"`
+	StreetAddress string  `json:"street_address"`
+	City          string  `json:"city"`
+	State         string  `json:"state"`
+	Zip           string  `json:"zip"`
+	MonthlyRent   float64 `json:"monthlyRent"`
 }
 
 func (s *Server) listProperties(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.DB.Query(r.Context(),
-		`SELECT id, address, city, state, zip, monthly_rent::float8 FROM properties WHERE user_id = $1 ORDER BY id`,
+		`SELECT id, street_address, city, state, zip, monthly_rent::float8 FROM properties WHERE user_id = $1 ORDER BY id`,
 		auth.UserID(r.Context()))
 	if err != nil {
+		log.Printf("listProperties: query error: %v", err)
 		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -148,13 +227,15 @@ func (s *Server) listProperties(w http.ResponseWriter, r *http.Request) {
 	props := []Property{}
 	for rows.Next() {
 		var p Property
-		if err := rows.Scan(&p.ID, &p.Address, &p.City, &p.State, &p.Zip, &p.MonthlyRent); err != nil {
+		if err := rows.Scan(&p.ID, &p.StreetAddress, &p.City, &p.State, &p.Zip, &p.MonthlyRent); err != nil {
+			log.Printf("listProperties: scan error: %v", err)
 			writeErr(w, http.StatusInternalServerError, "internal error")
 			return
 		}
 		props = append(props, p)
 	}
 	if rows.Err() != nil {
+		log.Printf("listProperties: rows iteration error: %v", rows.Err())
 		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -162,21 +243,43 @@ func (s *Server) listProperties(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createProperty(w http.ResponseWriter, r *http.Request) {
-	var p Property
+	var p struct {
+		StreetAddress string  `json:"street_address"`
+		Address       string  `json:"address"`
+		City          string  `json:"city"`
+		State         string  `json:"state"`
+		Zip           string  `json:"zip"`
+		MonthlyRent   float64 `json:"monthlyRent"`
+	}
 	if !decode(w, r, &p) {
 		return
 	}
-	if p.Address == "" || p.MonthlyRent < 0 {
-		writeErr(w, http.StatusBadRequest, "address is required and monthlyRent must be non-negative")
+	addr := strings.TrimSpace(p.StreetAddress)
+	if addr == "" {
+		addr = strings.TrimSpace(p.Address)
+	}
+	if addr == "" || p.MonthlyRent < 0 {
+		log.Printf("createProperty: invalid input: street_address=%q monthlyRent=%.2f", addr, p.MonthlyRent)
+		writeErr(w, http.StatusBadRequest, "street_address is required and monthlyRent must be non-negative")
 		return
 	}
+	var id int64
 	err := s.DB.QueryRow(r.Context(),
-		`INSERT INTO properties (user_id, address, city, state, zip, monthly_rent)
+		`INSERT INTO properties (user_id, street_address, city, state, zip, monthly_rent)
 		 VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-		auth.UserID(r.Context()), p.Address, p.City, p.State, p.Zip, p.MonthlyRent).Scan(&p.ID)
+		auth.UserID(r.Context()), addr, p.City, p.State, p.Zip, p.MonthlyRent).Scan(&id)
 	if err != nil {
+		log.Printf("createProperty: database insert error: %v", err)
 		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusCreated, p)
+	out := Property{
+		ID:            id,
+		StreetAddress: addr,
+		City:          p.City,
+		State:         p.State,
+		Zip:           p.Zip,
+		MonthlyRent:   p.MonthlyRent,
+	}
+	writeJSON(w, http.StatusCreated, out)
 }

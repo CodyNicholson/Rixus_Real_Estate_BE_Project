@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -50,11 +51,13 @@ func Middleware(secret string) func(http.Handler) http.Handler {
 			h := r.Header.Get("Authorization")
 			tok, ok := strings.CutPrefix(h, "Bearer ")
 			if !ok {
+				log.Printf("auth: missing or malformed Bearer authorization header for %s %s", r.Method, r.URL.Path)
 				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 				return
 			}
 			id, err := ParseToken(secret, tok)
 			if err != nil {
+				log.Printf("auth: invalid token for %s %s: %v", r.Method, r.URL.Path, err)
 				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 				return
 			}

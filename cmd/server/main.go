@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/CodyNicholson/Rixus_Real_Estate_BE_Project/internal/auth"
 	"github.com/CodyNicholson/Rixus_Real_Estate_BE_Project/internal/config"
 	"github.com/CodyNicholson/Rixus_Real_Estate_BE_Project/internal/db"
 	"github.com/CodyNicholson/Rixus_Real_Estate_BE_Project/internal/handlers"
@@ -22,7 +23,20 @@ func main() {
 	}
 	defer pool.Close()
 
-	s := &handlers.Server{DB: pool, JWTSecret: cfg.JWTSecret, CORSOrigin: cfg.CORSOrigin}
+	var cfValidator *auth.CFValidator
+	if cfg.CFTeamDomain != "" || cfg.CFPolicyAUD != "" || cfg.CFCertsURL != "" {
+		cfValidator = auth.NewCFValidator(cfg.CFTeamDomain, cfg.CFPolicyAUD, cfg.CFCertsURL)
+		log.Printf("cloudflare_access: JWT assertion verification enabled (team=%q, aud=%q)", cfg.CFTeamDomain, cfg.CFPolicyAUD)
+	}
+
+	s := &handlers.Server{
+		DB:           pool,
+		JWTSecret:    cfg.JWTSecret,
+		CORSOrigin:   cfg.CORSOrigin,
+		CFValidator:  cfValidator,
+		DevCFEmail:   cfg.DevCFEmail,
+		AllowDevAuth: cfg.AllowDevAuth,
+	}
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           s.Routes(),

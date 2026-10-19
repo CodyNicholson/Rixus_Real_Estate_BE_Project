@@ -1,5 +1,5 @@
-# Rixus_Real_Estate_BE_Project
-The BE for the Rixus Real Estate Project
+# Rixus Real Estate Backend
+The backend for the Rixus Real Estate Project
 
 ## Running
 

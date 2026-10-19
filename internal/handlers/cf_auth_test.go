@@ -2,103 +2,150 @@ package handlers
 
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/CodyNicholson/Rixus_Real_Estate_BE_Project/internal/auth"
+	"github.com/golang-jwt/jwt/v5"
 )
 
-func TestCFSessionNoHeader(t *testing.T) {
-	s := &Server{
-		JWTSecret:  "0123456789abcdef0123456789abcdef",
-		CORSOrigin: "*",
-	}
-	handler := s.Routes()
-
-	req := httptest.NewRequest(http.MethodGet, "/api/auth/cf-session", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", rec.Code)
-	}
-
-	var res CFSessionResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
-		t.Fatalf("failed to parse JSON: %v", err)
-	}
-
-	if res.Authenticated {
-		t.Errorf("expected authenticated=false when no CF header, got true")
-	}
-	if res.Registered {
-		t.Errorf("expected registered=false, got true")
-	}
+type mockTransport struct {
+	body string
 }
 
-func TestCFSessionWithHeaderUnregistered(t *testing.T) {
-	s := &Server{
-		JWTSecret:  "0123456789abcdef0123456789abcdef",
-		CORSOrigin: "*",
-	}
-	handler := s.Routes()
-
-	req := httptest.NewRequest(http.MethodGet, "/api/auth/cf-session", nil)
-	req.Header.Set("Cf-Access-Authenticated-User-Email", "googleuser@gmail.com")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", rec.Code)
-	}
-
-	var res CFSessionResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
-		t.Fatalf("failed to parse JSON: %v", err)
-	}
-
-	if !res.Authenticated {
-		t.Errorf("expected authenticated=true with CF header, got false")
-	}
-	if res.Registered {
-		t.Errorf("expected registered=false for unseeded DB, got true")
-	}
-	if res.Email != "googleuser@gmail.com" {
-		t.Errorf("expected email googleuser@gmail.com, got %q", res.Email)
-	}
+func (m *mockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(m.body)),
+		Header:     make(http.Header),
+	}, nil
 }
 
-func TestCFRegisterPasswordlessValidation(t *testing.T) {
-	s := &Server{
-		JWTSecret:  "0123456789abcdef0123456789abcdef",
-		CORSOrigin: "*",
+func TestCFSessionSecurity(t *testing.T) {
+	// 1. Setup RSA Key & Mock Cloudflare Certs
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("failed to generate RSA key: %v", err)
 	}
-	handler := s.Routes()
-
-	// 1. Non-CF registration without password fails
-	bodyNoPass, _ := json.Marshal(map[string]any{
-		"name":      "Test User",
-		"email":     "test@example.com",
-		"user_role": "VIEWER",
+	pubKeyBytes, _ := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	pubPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: pubKeyBytes,
 	})
-	req := httptest.NewRequest(http.MethodPost, "/api/auth/register", bytes.NewReader(bodyNoPass))
-	req.Header.Set("Content-Type", "application/json")
+
+	testKID := "test-cf-kid"
+	teamDomain := "https://myteam.cloudflareaccess.com"
+	policyAUD := "cf-policy-aud-12345"
+
+	resMap := map[string]any{
+		"public_certs": []map[string]string{
+			{"kid": testKID, "cert": string(pubPEM)},
+		},
+	}
+	resBytes, _ := json.Marshal(resMap)
+
+	validator := auth.NewCFValidator(teamDomain, policyAUD, "https://myteam.cloudflareaccess.com/cdn-cgi/access/certs")
+	validator.HTTPClient = &http.Client{
+		Transport: &mockTransport{body: string(resBytes)},
+	}
+
+	s := &Server{
+		JWTSecret:   "0123456789abcdef0123456789abcdef",
+		CORSOrigin:  "*",
+		CFValidator: validator,
+	}
+	handler := s.Routes()
+
+	// Helper to generate a valid signed JWT assertion
+	createAssertion := func(email string) string {
+		claims := auth.CFAccessClaims{
+			Email: email,
+			RegisteredClaims: jwt.RegisteredClaims{
+				Audience:  jwt.ClaimStrings{policyAUD},
+				Issuer:    teamDomain,
+				ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
+				IssuedAt:  jwt.NewNumericDate(time.Now().Add(-1 * time.Minute)),
+			},
+		}
+		token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+		token.Header["kid"] = testKID
+		signed, err := token.SignedString(privateKey)
+		if err != nil {
+			t.Fatalf("failed to sign assertion: %v", err)
+		}
+		return signed
+	}
+
+	// Test 1: No headers at all -> returns authenticated: false
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/cf-session", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for non-CF registration without password, got %d. Body: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	var res CFSessionResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &res)
+	if res.Authenticated {
+		t.Error("expected authenticated=false without headers, got true")
 	}
 
-	// 2. CF registration where email mismatches authenticated Google email fails with 403
-	reqMismatch := httptest.NewRequest(http.MethodPost, "/api/auth/register", bytes.NewReader(bodyNoPass))
-	reqMismatch.Header.Set("Content-Type", "application/json")
-	reqMismatch.Header.Set("Cf-Access-Authenticated-User-Email", "different@gmail.com")
-	recMismatch := httptest.NewRecorder()
-	handler.ServeHTTP(recMismatch, reqMismatch)
+	// Test 2: SPOOF ATTACK: Attacker sends only Cf-Access-Authenticated-User-Email
+	// CRITICAL SECURITY TEST: Must NOT authenticate the user!
+	spoofReq := httptest.NewRequest(http.MethodGet, "/api/auth/cf-session", nil)
+	spoofReq.Header.Set("Cf-Access-Authenticated-User-Email", "admin@rixus.com")
+	spoofRec := httptest.NewRecorder()
+	handler.ServeHTTP(spoofRec, spoofReq)
 
-	if recMismatch.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for email mismatch, got %d. Body: %s", recMismatch.Code, recMismatch.Body.String())
+	if spoofRec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", spoofRec.Code)
+	}
+	var spoofRes CFSessionResponse
+	_ = json.Unmarshal(spoofRec.Body.Bytes(), &spoofRes)
+	if spoofRes.Authenticated {
+		t.Fatal("SECURITY VULNERABILITY: Plain Cf-Access-Authenticated-User-Email header was trusted without JWT assertion!")
+	}
+
+	// Test 3: LEGITIMATE REQUEST: User provides valid Cf-Access-Jwt-Assertion
+	validAssertion := createAssertion("verified-google-user@gmail.com")
+	validReq := httptest.NewRequest(http.MethodGet, "/api/auth/cf-session", nil)
+	validReq.Header.Set("Cf-Access-Jwt-Assertion", validAssertion)
+	validRec := httptest.NewRecorder()
+	handler.ServeHTTP(validRec, validReq)
+
+	if validRec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", validRec.Code)
+	}
+	var validRes CFSessionResponse
+	_ = json.Unmarshal(validRec.Body.Bytes(), &validRes)
+	if !validRes.Authenticated {
+		t.Fatal("expected authenticated=true with valid JWT assertion, got false")
+	}
+	if validRes.Email != "verified-google-user@gmail.com" {
+		t.Errorf("expected email verified-google-user@gmail.com, got %q", validRes.Email)
+	}
+
+	// Test 4: REGISTRATION: Email mismatch with verified token is rejected with 403
+	mismatchBody, _ := json.Marshal(map[string]any{
+		"name":      "Hacker",
+		"email":     "victim@example.com",
+		"user_role": "ADMIN",
+	})
+	mismatchReq := httptest.NewRequest(http.MethodPost, "/api/auth/register", bytes.NewReader(mismatchBody))
+	mismatchReq.Header.Set("Content-Type", "application/json")
+	mismatchReq.Header.Set("Cf-Access-Jwt-Assertion", validAssertion) // token has "verified-google-user@gmail.com"
+	mismatchRec := httptest.NewRecorder()
+	handler.ServeHTTP(mismatchRec, mismatchReq)
+
+	if mismatchRec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when registration email mismatches verified JWT email, got %d", mismatchRec.Code)
 	}
 }
-

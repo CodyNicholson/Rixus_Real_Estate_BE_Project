@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"net/mail"
@@ -17,9 +18,12 @@ import (
 )
 
 type Server struct {
-	DB         *pgxpool.Pool
-	JWTSecret  string
-	CORSOrigin string
+	DB           *pgxpool.Pool
+	JWTSecret    string
+	CORSOrigin   string
+	CFValidator  *auth.CFValidator
+	DevCFEmail   string
+	AllowDevAuth bool
 }
 
 func (s *Server) Routes() http.Handler {
@@ -228,14 +232,37 @@ func (s *Server) issueToken(w http.ResponseWriter, id int64, status int) {
 	s.issueAuthTokens(w, &http.Request{}, id, status)
 }
 
-func getCloudflareUserEmail(r *http.Request) string {
-	if email := strings.TrimSpace(r.Header.Get("Cf-Access-Authenticated-User-Email")); email != "" {
-		return email
+func (s *Server) getVerifiedCFUserEmail(r *http.Request) (string, error) {
+	// 1. Verify Cf-Access-Jwt-Assertion header against Cloudflare public certs
+	tokenStr := strings.TrimSpace(r.Header.Get("Cf-Access-Jwt-Assertion"))
+	if tokenStr != "" {
+		if s.CFValidator == nil {
+			log.Printf("cf_auth: Cf-Access-Jwt-Assertion received but CFValidator is not configured on server")
+			return "", errors.New("Cloudflare Access JWT verification not configured")
+		}
+		claims, err := s.CFValidator.ValidateToken(tokenStr)
+		if err != nil {
+			log.Printf("cf_auth: Cf-Access-Jwt-Assertion validation failed: %v", err)
+			return "", fmt.Errorf("invalid Cf-Access-Jwt-Assertion: %w", err)
+		}
+		return claims.Email, nil
 	}
-	if devEmail := strings.TrimSpace(os.Getenv("DEV_CF_EMAIL")); devEmail != "" {
-		return devEmail
+
+	// 2. Reject unverified spoofed header
+	// CRITICAL SECURITY ENFORCEMENT:
+	// Do NOT trust Cf-Access-Authenticated-User-Email header without a valid Cf-Access-Jwt-Assertion!
+	if spoofed := r.Header.Get("Cf-Access-Authenticated-User-Email"); spoofed != "" {
+		log.Printf("cf_auth: REJECTED unverified Cf-Access-Authenticated-User-Email header %q without valid Cf-Access-Jwt-Assertion", spoofed)
+		return "", errors.New("unverified header rejected: Cf-Access-Jwt-Assertion is required")
 	}
-	return ""
+
+	// 3. Optional local development override: ONLY active if explicitly enabled
+	if s.AllowDevAuth && s.DevCFEmail != "" {
+		log.Printf("cf_auth: WARNING: using DEV_CF_EMAIL=%q for development testing", s.DevCFEmail)
+		return s.DevCFEmail, nil
+	}
+
+	return "", errors.New("no Cloudflare Access credentials provided")
 }
 
 type CFSessionResponse struct {
@@ -248,8 +275,8 @@ type CFSessionResponse struct {
 }
 
 func (s *Server) cfSession(w http.ResponseWriter, r *http.Request) {
-	cfEmail := getCloudflareUserEmail(r)
-	if cfEmail == "" {
+	cfEmail, err := s.getVerifiedCFUserEmail(r)
+	if err != nil || cfEmail == "" {
 		writeJSON(w, http.StatusOK, CFSessionResponse{
 			Authenticated: false,
 			Registered:    false,
@@ -267,7 +294,7 @@ func (s *Server) cfSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var u UserResponse
-	err := s.DB.QueryRow(r.Context(),
+	err = s.DB.QueryRow(r.Context(),
 		`SELECT id, name, email, user_role FROM users WHERE LOWER(email) = LOWER($1)`,
 		cfEmail).Scan(&u.ID, &u.Name, &u.Email, &u.UserRole)
 
@@ -317,7 +344,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	cfEmail := getCloudflareUserEmail(r)
+	cfEmail, _ := s.getVerifiedCFUserEmail(r)
 
 	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {

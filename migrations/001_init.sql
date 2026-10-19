@@ -1,9 +1,8 @@
 CREATE TABLE IF NOT EXISTS users (
     id BIGSERIAL PRIMARY KEY,
     email TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
     name TEXT NOT NULL,
-    user_role TEXT NOT NULL CHECK (user_role IN ('ADMIN', 'VIEWER')),
+    user_role TEXT NOT NULL DEFAULT 'VIEWER' CHECK (user_role IN ('ADMIN', 'VIEWER')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

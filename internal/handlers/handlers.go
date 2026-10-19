@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/mail"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,6 +30,7 @@ type Server struct {
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	authMW := auth.Middleware(s.JWTSecret)
+	adminMW := s.adminMiddleware
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -46,6 +48,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/logout", s.logout)
 	mux.Handle("GET /api/auth/me", authMW(http.HandlerFunc(s.me)))
 	mux.Handle("GET /api/me", authMW(http.HandlerFunc(s.me)))
+
+	// Admin-only endpoints
+	mux.Handle("POST /api/admin/promote", authMW(adminMW(http.HandlerFunc(s.promoteUser))))
+	mux.Handle("POST /api/admin/users/{id}/promote", authMW(adminMW(http.HandlerFunc(s.promoteUser))))
 
 	mux.Handle("GET /api/properties", authMW(http.HandlerFunc(s.listProperties)))
 	mux.Handle("POST /api/properties", authMW(http.HandlerFunc(s.createProperty)))
@@ -129,17 +135,9 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 
-type credentials struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-}
-
 type registerRequest struct {
-	Name      string `json:"name"`
-	Email     string `json:"email"`
-	Password  string `json:"password"`
-	UserRole  string `json:"user_role"`
-	UserRoleC string `json:"userRole"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
 }
 
 type UserResponse struct {
@@ -370,46 +368,17 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	role := req.UserRole
-	if role == "" {
-		role = req.UserRoleC
-	}
-	role = strings.ToUpper(strings.TrimSpace(role))
-	if role == "" {
-		role = "VIEWER"
-	}
-	if role != "ADMIN" && role != "VIEWER" {
-		log.Printf("register: invalid user_role %q (must be ADMIN or VIEWER)", role)
-		writeErr(w, http.StatusBadRequest, "user_role must be ADMIN or VIEWER")
-		return
-	}
-
-	var passwordHash *string
-	if req.Password != "" {
-		// bcrypt only uses the first 72 bytes
-		if len(req.Password) < 8 || len(req.Password) > 72 {
-			log.Printf("register: password must be 8-72 characters (got %d)", len(req.Password))
-			writeErr(w, http.StatusBadRequest, "password must be 8-72 characters")
-			return
-		}
-		hash, err := auth.HashPassword(req.Password)
-		if err != nil {
-			log.Printf("register: password hashing error: %v", err)
-			writeErr(w, http.StatusInternalServerError, "internal error")
-			return
-		}
-		passwordHash = &hash
-	} else if cfEmail == "" {
-		// For standard non-OAuth registration, password is required
-		log.Printf("register: password is required")
-		writeErr(w, http.StatusBadRequest, "password is required")
+	if s.DB == nil {
+		writeErr(w, http.StatusInternalServerError, "database not configured")
 		return
 	}
 
 	var id int64
+	// New user registrations always receive the VIEWER role. Admins must be promoted via the admin-only endpoint.
+	// Authentication is mediated solely by Cloudflare Access Google OAuth; no password hashes are stored.
 	err := s.DB.QueryRow(r.Context(),
-		`INSERT INTO users (name, email, password_hash, user_role) VALUES ($1, $2, $3, $4) RETURNING id`,
-		req.Name, req.Email, passwordHash, role).Scan(&id)
+		`INSERT INTO users (name, email, user_role) VALUES ($1, $2, 'VIEWER') RETURNING id`,
+		req.Name, req.Email).Scan(&id)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -425,26 +394,28 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
-	var c credentials
-	if !decode(w, r, &c) {
+	cfEmail, err := s.getVerifiedCFUserEmail(r)
+	if err != nil || cfEmail == "" {
+		writeErr(w, http.StatusUnauthorized, "Cloudflare Access Google OAuth authentication required")
 		return
 	}
+
+	if s.DB == nil {
+		writeErr(w, http.StatusInternalServerError, "database not configured")
+		return
+	}
+
 	var id int64
-	var hash *string
-	err := s.DB.QueryRow(r.Context(),
-		`SELECT id, password_hash FROM users WHERE email = $1`, c.Email).Scan(&id, &hash)
+	err = s.DB.QueryRow(r.Context(),
+		`SELECT id FROM users WHERE LOWER(email) = LOWER($1)`, cfEmail).Scan(&id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			log.Printf("login: user not found: %s", c.Email)
-		} else {
-			log.Printf("login: database query error: %v", err)
+			log.Printf("login: user not found: %s", cfEmail)
+			writeErr(w, http.StatusNotFound, "user not registered; please complete registration")
+			return
 		}
-		writeErr(w, http.StatusUnauthorized, "invalid email or password")
-		return
-	}
-	if hash == nil || *hash == "" || !auth.CheckPassword(*hash, c.Password) {
-		log.Printf("login: invalid password or passwordless user: %s", c.Email)
-		writeErr(w, http.StatusUnauthorized, "invalid email or password")
+		log.Printf("login: database query error: %v", err)
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	s.issueAuthTokens(w, r, id, http.StatusOK)
@@ -564,4 +535,118 @@ func (s *Server) createProperty(w http.ResponseWriter, r *http.Request) {
 		MonthlyRent:   p.MonthlyRent,
 	}
 	writeJSON(w, http.StatusCreated, out)
+}
+
+func (s *Server) adminMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callerID := auth.UserID(r.Context())
+		if callerID == 0 {
+			writeErr(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+
+		var role string
+		if s.DB != nil && r.Context() != nil {
+			err := s.DB.QueryRow(r.Context(), `SELECT user_role FROM users WHERE id = $1`, callerID).Scan(&role)
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					log.Printf("adminMiddleware: caller id %d not found in database", callerID)
+					writeErr(w, http.StatusUnauthorized, "user not found")
+					return
+				}
+				log.Printf("adminMiddleware: database query error for caller %d: %v", callerID, err)
+				writeErr(w, http.StatusInternalServerError, "internal error")
+				return
+			}
+		} else {
+			// In unit tests without database pool, check the role stored in token context
+			role = auth.UserRole(r.Context())
+		}
+
+		if role != "ADMIN" {
+			log.Printf("adminMiddleware: forbidden - caller %d has role %q, ADMIN required", callerID, role)
+			writeErr(w, http.StatusForbidden, "admin privileges required")
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+type promoteRequest struct {
+	UserID int64  `json:"user_id"`
+	Email  string `json:"email"`
+	Role   string `json:"role,omitempty"`
+}
+
+func (s *Server) promoteUser(w http.ResponseWriter, r *http.Request) {
+	var targetID int64
+	var targetEmail string
+	newRole := "ADMIN"
+
+	if idStr := r.PathValue("id"); idStr != "" {
+		parsedID, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil || parsedID <= 0 {
+			writeErr(w, http.StatusBadRequest, "invalid user id in path")
+			return
+		}
+		targetID = parsedID
+	}
+
+	if r.Body != nil && r.ContentLength > 0 {
+		var req promoteRequest
+		if decode(w, r, &req) {
+			if targetID == 0 && req.UserID > 0 {
+				targetID = req.UserID
+			}
+			if req.Email != "" {
+				targetEmail = strings.TrimSpace(req.Email)
+			}
+			if req.Role != "" {
+				rUpper := strings.ToUpper(strings.TrimSpace(req.Role))
+				if rUpper != "ADMIN" && rUpper != "VIEWER" {
+					writeErr(w, http.StatusBadRequest, "role must be ADMIN or VIEWER")
+					return
+				}
+				newRole = rUpper
+			}
+		} else {
+			return
+		}
+	}
+
+	if targetID == 0 && targetEmail == "" {
+		writeErr(w, http.StatusBadRequest, "user_id or email is required")
+		return
+	}
+
+	if s.DB == nil {
+		writeErr(w, http.StatusInternalServerError, "database not configured")
+		return
+	}
+
+	var u UserResponse
+	var err error
+	if targetID > 0 {
+		err = s.DB.QueryRow(r.Context(),
+			`UPDATE users SET user_role = $1 WHERE id = $2 RETURNING id, name, email, user_role`,
+			newRole, targetID).Scan(&u.ID, &u.Name, &u.Email, &u.UserRole)
+	} else {
+		err = s.DB.QueryRow(r.Context(),
+			`UPDATE users SET user_role = $1 WHERE LOWER(email) = LOWER($2) RETURNING id, name, email, user_role`,
+			newRole, targetEmail).Scan(&u.ID, &u.Name, &u.Email, &u.UserRole)
+	}
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeErr(w, http.StatusNotFound, "user not found")
+			return
+		}
+		log.Printf("promoteUser: database update error: %v", err)
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	log.Printf("promoteUser: user %d (%s) set to role %s by admin %d", u.ID, u.Email, u.UserRole, auth.UserID(r.Context()))
+	writeJSON(w, http.StatusOK, u)
 }

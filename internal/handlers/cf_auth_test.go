@@ -135,9 +135,8 @@ func TestCFSessionSecurity(t *testing.T) {
 
 	// Test 4: REGISTRATION: Email mismatch with verified token is rejected with 403
 	mismatchBody, _ := json.Marshal(map[string]any{
-		"name":      "Hacker",
-		"email":     "victim@example.com",
-		"user_role": "ADMIN",
+		"name":  "Hacker",
+		"email": "victim@example.com",
 	})
 	mismatchReq := httptest.NewRequest(http.MethodPost, "/api/auth/register", bytes.NewReader(mismatchBody))
 	mismatchReq.Header.Set("Content-Type", "application/json")

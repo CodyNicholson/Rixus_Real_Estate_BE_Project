@@ -49,12 +49,25 @@ func TestAccessAndRefreshToken(t *testing.T) {
 	}
 }
 
-func TestPassword(t *testing.T) {
-	h, err := HashPassword("password123")
+
+func TestParseAccessTokenClaims(t *testing.T) {
+	secret := "0123456789abcdef0123456789abcdef"
+	tok, err := NewAccessToken(secret, 55, "admin@example.com", "Admin User", "ADMIN")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("failed to create access token: %v", err)
 	}
-	if !CheckPassword(h, "password123") || CheckPassword(h, "nope") {
-		t.Fatal("password check failed")
+
+	claims, err := ParseAccessTokenClaims(secret, tok)
+	if err != nil {
+		t.Fatalf("failed to parse claims: %v", err)
+	}
+	if claims.Email != "admin@example.com" {
+		t.Errorf("expected email admin@example.com, got %q", claims.Email)
+	}
+	if claims.UserRole != "ADMIN" {
+		t.Errorf("expected role ADMIN, got %q", claims.UserRole)
+	}
+	if claims.Subject != "55" {
+		t.Errorf("expected subject 55, got %q", claims.Subject)
 	}
 }

@@ -39,7 +39,7 @@
     "/api/auth/register": {
       "post": {
         "summary": "Register user",
-        "description": "Registers a new user account with name, email, password, and optional user_role",
+        "description": "Registers a new user account with name and email. Authenticated via Cloudflare Access Google OAuth; new users are assigned the VIEWER role.",
         "requestBody": {
           "required": true,
           "content": {
@@ -62,7 +62,7 @@
             }
           },
           "400": {
-            "description": "Invalid email format or password length not between 8-72 characters",
+            "description": "Invalid email or name is required",
             "content": {
               "application/json": {
                 "schema": {
@@ -97,17 +97,18 @@
     "/api/auth/login": {
       "post": {
         "summary": "Log in",
-        "description": "Authenticates user credentials and returns a JWT token",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/Credentials"
-              }
+        "description": "Authenticates user via Cloudflare Access Google OAuth (Cf-Access-Jwt-Assertion header) and returns JWT tokens",
+        "parameters": [
+          {
+            "name": "Cf-Access-Jwt-Assertion",
+            "in": "header",
+            "required": true,
+            "description": "Signed Cloudflare Access JWT assertion verifying Google OAuth identity",
+            "schema": {
+              "type": "string"
             }
           }
-        },
+        ],
         "responses": {
           "200": {
             "description": "Authentication successful, returns JWT token",
@@ -119,8 +120,8 @@
               }
             }
           },
-          "400": {
-            "description": "Invalid request body",
+          "401": {
+            "description": "Cloudflare Access Google OAuth authentication required or token invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -129,8 +130,8 @@
               }
             }
           },
-          "401": {
-            "description": "Invalid email or password",
+          "404": {
+            "description": "User not registered in database",
             "content": {
               "application/json": {
                 "schema": {
@@ -343,6 +344,79 @@
           }
         }
       }
+    },
+    "/api/admin/promote": {
+      "post": {
+        "summary": "Promote user to admin",
+        "description": "Promotes an existing user to ADMIN. Requires an active ADMIN bearer token.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoteUserRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "User successfully promoted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Missing user_id or email, or invalid role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - Missing or invalid Bearer token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden - Admin privileges required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found - User does not exist",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -383,8 +457,7 @@
         "type": "object",
         "required": [
           "name",
-          "email",
-          "password"
+          "email"
         ],
         "properties": {
           "name": {
@@ -395,46 +468,10 @@
             "type": "string",
             "format": "email",
             "example": "jane.doe@example.com"
-          },
-          "password": {
-            "type": "string",
-            "format": "password",
-            "minLength": 8,
-            "maxLength": 72,
-            "example": "P@ssword123!"
-          },
-          "user_role": {
-            "type": "string",
-            "enum": [
-              "ADMIN",
-              "VIEWER"
-            ],
-            "default": "VIEWER",
-            "example": "VIEWER"
           }
         }
       },
-      "Credentials": {
-        "type": "object",
-        "required": [
-          "email",
-          "password"
-        ],
-        "properties": {
-          "email": {
-            "type": "string",
-            "format": "email",
-            "example": "agent@rixus.com"
-          },
-          "password": {
-            "type": "string",
-            "format": "password",
-            "minLength": 8,
-            "maxLength": 72,
-            "example": "P@ssword123!"
-          }
-        }
-      },
+
       "AuthToken": {
         "type": "object",
         "properties": {
@@ -514,6 +551,30 @@
           "error": {
             "type": "string",
             "example": "invalid request body"
+          }
+        }
+      },
+      "PromoteUserRequest": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "integer",
+            "format": "int64",
+            "example": 2
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "example": "jane.doe@example.com"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "ADMIN",
+              "VIEWER"
+            ],
+            "default": "ADMIN",
+            "example": "ADMIN"
           }
         }
       }

@@ -36,6 +36,8 @@ func (s *Server) Routes() http.Handler {
 	})
 
 	// Auth endpoints (both /api/... and /api/auth/... supported)
+	mux.HandleFunc("GET /api/auth/google", s.authGoogle)
+	mux.HandleFunc("GET /api/auth/login", s.authGoogle)
 	mux.HandleFunc("GET /api/auth/cf-session", s.cfSession)
 	mux.HandleFunc("GET /api/cf-session", s.cfSession)
 	mux.HandleFunc("POST /api/auth/register", s.register)
@@ -54,7 +56,10 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /api/admin/users/{id}/promote", authMW(adminMW(http.HandlerFunc(s.promoteUser))))
 
 	mux.Handle("GET /api/properties", authMW(http.HandlerFunc(s.listProperties)))
+	mux.Handle("GET /api/properties/{id}", authMW(http.HandlerFunc(s.getProperty)))
 	mux.Handle("POST /api/properties", authMW(http.HandlerFunc(s.createProperty)))
+	mux.Handle("GET /api/users/{id}/properties", authMW(http.HandlerFunc(s.listProperties)))
+	mux.Handle("POST /api/users/{id}/properties", authMW(http.HandlerFunc(s.createProperty)))
 
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/swagger/", http.StatusMovedPermanently)
@@ -268,9 +273,24 @@ func (s *Server) getVerifiedCFUserEmail(r *http.Request) (string, error) {
 	}
 
 	// 3. Optional local development override: ONLY active if explicitly enabled
-	if s.AllowDevAuth && s.DevCFEmail != "" {
-		log.Printf("cf_auth: WARNING: using DEV_CF_EMAIL=%q for development testing", s.DevCFEmail)
-		return s.DevCFEmail, nil
+	if s.AllowDevAuth {
+		// If the dev user has explicitly logged out, do not auto-authenticate via DEV_CF_EMAIL
+		if cookie, err := r.Cookie("dev_cf_logged_out"); err == nil && cookie.Value == "true" {
+			if devHeader := r.Header.Get("X-Dev-Email"); devHeader != "" {
+				log.Printf("cf_auth: WARNING: using explicit X-Dev-Email=%q for development testing", devHeader)
+				return strings.TrimSpace(devHeader), nil
+			}
+			return "", errors.New("user has logged out in development mode")
+		}
+
+		if devHeader := r.Header.Get("X-Dev-Email"); devHeader != "" {
+			log.Printf("cf_auth: WARNING: using X-Dev-Email=%q for development testing", devHeader)
+			return strings.TrimSpace(devHeader), nil
+		}
+		if s.DevCFEmail != "" {
+			log.Printf("cf_auth: WARNING: using DEV_CF_EMAIL=%q for development testing", s.DevCFEmail)
+			return s.DevCFEmail, nil
+		}
 	}
 
 	return "", errors.New("no Cloudflare Access credentials provided")
@@ -406,8 +426,39 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	s.issueAuthTokens(w, r, id, http.StatusCreated)
 }
 
+type loginRequest struct {
+	Email string `json:"email,omitempty"`
+}
+
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
+	if s.AllowDevAuth {
+		http.SetCookie(w, &http.Cookie{
+			Name:     "dev_cf_logged_out",
+			Value:    "",
+			Path:     "/",
+			MaxAge:   -1,
+			Expires:  time.Unix(0, 0),
+			HttpOnly: false,
+			SameSite: http.SameSiteLaxMode,
+		})
+	}
+
 	cfEmail, err := s.getVerifiedCFUserEmail(r)
+	if s.AllowDevAuth && (err != nil || cfEmail == "") {
+		var req loginRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if req.Email != "" {
+			cfEmail = strings.TrimSpace(req.Email)
+			err = nil
+		} else if devHeader := r.Header.Get("X-Dev-Email"); devHeader != "" {
+			cfEmail = strings.TrimSpace(devHeader)
+			err = nil
+		} else if s.DevCFEmail != "" {
+			cfEmail = s.DevCFEmail
+			err = nil
+		}
+	}
+
 	if err != nil || cfEmail == "" {
 		writeErr(w, http.StatusUnauthorized, "Cloudflare Access Google OAuth authentication required")
 		return
@@ -434,6 +485,61 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	s.issueAuthTokens(w, r, id, http.StatusOK)
 }
 
+func (s *Server) authGoogle(w http.ResponseWriter, r *http.Request) {
+	if s.AllowDevAuth {
+		http.SetCookie(w, &http.Cookie{
+			Name:     "dev_cf_logged_out",
+			Value:    "",
+			Path:     "/",
+			MaxAge:   -1,
+			Expires:  time.Unix(0, 0),
+			HttpOnly: false,
+			SameSite: http.SameSiteLaxMode,
+		})
+	}
+
+	cfEmail, err := s.getVerifiedCFUserEmail(r)
+	if err != nil || cfEmail == "" {
+		if s.AllowDevAuth {
+			if s.DevCFEmail != "" {
+				cfEmail = s.DevCFEmail
+			} else {
+				http.Redirect(w, r, "/?auth=dev_login", http.StatusFound)
+				return
+			}
+		} else {
+			// In production, unauthenticated requests trigger Cloudflare Access login challenge
+			http.Redirect(w, r, "/cdn-cgi/access/login", http.StatusFound)
+			return
+		}
+	}
+
+	if s.DB == nil {
+		http.Redirect(w, r, "/?auth=error&msg=database_not_configured", http.StatusFound)
+		return
+	}
+
+	var u UserResponse
+	err = s.DB.QueryRow(r.Context(),
+		`SELECT id, name, email, user_role FROM users WHERE LOWER(email) = LOWER($1)`,
+		cfEmail).Scan(&u.ID, &u.Name, &u.Email, &u.UserRole)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			http.Redirect(w, r, "/?auth=new_user", http.StatusFound)
+			return
+		}
+		log.Printf("authGoogle: database query error for %q: %v", cfEmail, err)
+		http.Redirect(w, r, "/?auth=error&msg=db_error", http.StatusFound)
+		return
+	}
+
+	refreshToken, err := auth.NewRefreshToken(s.JWTSecret, u.ID)
+	if err == nil {
+		s.setRefreshTokenCookie(w, r, refreshToken)
+	}
+	http.Redirect(w, r, "/?auth=success", http.StatusFound)
+}
+
 func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie("refresh_token")
 	if err != nil || cookie.Value == "" {
@@ -455,6 +561,15 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	s.clearRefreshTokenCookie(w, r)
+	if s.AllowDevAuth {
+		http.SetCookie(w, &http.Cookie{
+			Name:     "dev_cf_logged_out",
+			Value:    "true",
+			Path:     "/",
+			HttpOnly: false,
+			SameSite: http.SameSiteLaxMode,
+		})
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "logged out"})
 }
 
@@ -473,7 +588,9 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 
 type Property struct {
 	ID            int64   `json:"id"`
+	UserID        int64   `json:"user_id"`
 	StreetAddress string  `json:"street_address"`
+	Address       string  `json:"address,omitempty"`
 	City          string  `json:"city"`
 	State         string  `json:"state"`
 	Zip           string  `json:"zip"`
@@ -481,9 +598,44 @@ type Property struct {
 }
 
 func (s *Server) listProperties(w http.ResponseWriter, r *http.Request) {
+	callerID := auth.UserID(r.Context())
+	callerRole := auth.UserRole(r.Context())
+	targetUserID := callerID
+
+	if idStr := r.PathValue("id"); idStr != "" {
+		uid, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil || uid <= 0 {
+			writeErr(w, http.StatusBadRequest, "invalid user id")
+			return
+		}
+		if callerID != uid && callerRole != "ADMIN" {
+			log.Printf("listProperties: forbidden - caller %d (role %s) cannot access properties for user %d", callerID, callerRole, uid)
+			writeErr(w, http.StatusForbidden, "forbidden")
+			return
+		}
+		targetUserID = uid
+	} else if uidStr := r.URL.Query().Get("user_id"); uidStr != "" {
+		uid, err := strconv.ParseInt(uidStr, 10, 64)
+		if err != nil || uid <= 0 {
+			writeErr(w, http.StatusBadRequest, "invalid user id")
+			return
+		}
+		if callerID != uid && callerRole != "ADMIN" {
+			log.Printf("listProperties: forbidden - caller %d (role %s) cannot access properties for user %d", callerID, callerRole, uid)
+			writeErr(w, http.StatusForbidden, "forbidden")
+			return
+		}
+		targetUserID = uid
+	}
+
+	if s.DB == nil {
+		writeErr(w, http.StatusInternalServerError, "database not configured")
+		return
+	}
+
 	rows, err := s.DB.Query(r.Context(),
-		`SELECT id, street_address, city, state, zip, monthly_rent::float8 FROM properties WHERE user_id = $1 ORDER BY id`,
-		auth.UserID(r.Context()))
+		`SELECT id, user_id, street_address, city, state, zip, monthly_rent::float8 FROM properties WHERE user_id = $1 ORDER BY id`,
+		targetUserID)
 	if err != nil {
 		log.Printf("listProperties: query error: %v", err)
 		writeErr(w, http.StatusInternalServerError, "internal error")
@@ -493,11 +645,12 @@ func (s *Server) listProperties(w http.ResponseWriter, r *http.Request) {
 	props := []Property{}
 	for rows.Next() {
 		var p Property
-		if err := rows.Scan(&p.ID, &p.StreetAddress, &p.City, &p.State, &p.Zip, &p.MonthlyRent); err != nil {
+		if err := rows.Scan(&p.ID, &p.UserID, &p.StreetAddress, &p.City, &p.State, &p.Zip, &p.MonthlyRent); err != nil {
 			log.Printf("listProperties: scan error: %v", err)
 			writeErr(w, http.StatusInternalServerError, "internal error")
 			return
 		}
+		p.Address = p.StreetAddress
 		props = append(props, p)
 	}
 	if rows.Err() != nil {
@@ -508,14 +661,82 @@ func (s *Server) listProperties(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, props)
 }
 
+func (s *Server) getProperty(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	propID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || propID <= 0 {
+		writeErr(w, http.StatusBadRequest, "invalid property id")
+		return
+	}
+	callerID := auth.UserID(r.Context())
+	callerRole := auth.UserRole(r.Context())
+
+	if s.DB == nil {
+		writeErr(w, http.StatusInternalServerError, "database not configured")
+		return
+	}
+
+	var p Property
+	err = s.DB.QueryRow(r.Context(),
+		`SELECT id, user_id, street_address, city, state, zip, monthly_rent::float8 FROM properties WHERE id = $1`,
+		propID).Scan(&p.ID, &p.UserID, &p.StreetAddress, &p.City, &p.State, &p.Zip, &p.MonthlyRent)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeErr(w, http.StatusNotFound, "property not found")
+			return
+		}
+		log.Printf("getProperty: query error: %v", err)
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if p.UserID != callerID && callerRole != "ADMIN" {
+		log.Printf("getProperty: forbidden - caller %d (role %s) cannot access property %d owned by user %d", callerID, callerRole, propID, p.UserID)
+		writeErr(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	p.Address = p.StreetAddress
+	writeJSON(w, http.StatusOK, p)
+}
+
 func (s *Server) createProperty(w http.ResponseWriter, r *http.Request) {
+	callerID := auth.UserID(r.Context())
+	callerRole := auth.UserRole(r.Context())
+	targetUserID := callerID
+
+	if idStr := r.PathValue("id"); idStr != "" {
+		uid, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil || uid <= 0 {
+			writeErr(w, http.StatusBadRequest, "invalid user id")
+			return
+		}
+		if callerID != uid && callerRole != "ADMIN" {
+			log.Printf("createProperty: forbidden - caller %d (role %s) cannot create property for user %d", callerID, callerRole, uid)
+			writeErr(w, http.StatusForbidden, "forbidden")
+			return
+		}
+		targetUserID = uid
+	} else if uidStr := r.URL.Query().Get("user_id"); uidStr != "" {
+		uid, err := strconv.ParseInt(uidStr, 10, 64)
+		if err != nil || uid <= 0 {
+			writeErr(w, http.StatusBadRequest, "invalid user id")
+			return
+		}
+		if callerID != uid && callerRole != "ADMIN" {
+			log.Printf("createProperty: forbidden - caller %d (role %s) cannot create property for user %d", callerID, callerRole, uid)
+			writeErr(w, http.StatusForbidden, "forbidden")
+			return
+		}
+		targetUserID = uid
+	}
+
 	var p struct {
-		StreetAddress string  `json:"street_address"`
-		Address       string  `json:"address"`
-		City          string  `json:"city"`
-		State         string  `json:"state"`
-		Zip           string  `json:"zip"`
-		MonthlyRent   float64 `json:"monthlyRent"`
+		StreetAddress  string  `json:"street_address"`
+		Address        string  `json:"address"`
+		City           string  `json:"city"`
+		State          string  `json:"state"`
+		Zip            string  `json:"zip"`
+		MonthlyRent    float64 `json:"monthlyRent"`
+		MonthlyRentAlt float64 `json:"monthly_rent"`
 	}
 	if !decode(w, r, &p) {
 		return
@@ -524,16 +745,24 @@ func (s *Server) createProperty(w http.ResponseWriter, r *http.Request) {
 	if addr == "" {
 		addr = strings.TrimSpace(p.Address)
 	}
-	if addr == "" || p.MonthlyRent < 0 {
-		log.Printf("createProperty: invalid input: street_address=%q monthlyRent=%.2f", addr, p.MonthlyRent)
+	rent := p.MonthlyRent
+	if rent == 0 && p.MonthlyRentAlt > 0 {
+		rent = p.MonthlyRentAlt
+	}
+	if addr == "" || rent < 0 {
+		log.Printf("createProperty: invalid input: street_address=%q monthlyRent=%.2f", addr, rent)
 		writeErr(w, http.StatusBadRequest, "street_address is required and monthlyRent must be non-negative")
+		return
+	}
+	if s.DB == nil {
+		writeErr(w, http.StatusInternalServerError, "database not configured")
 		return
 	}
 	var id int64
 	err := s.DB.QueryRow(r.Context(),
 		`INSERT INTO properties (user_id, street_address, city, state, zip, monthly_rent)
 		 VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-		auth.UserID(r.Context()), addr, p.City, p.State, p.Zip, p.MonthlyRent).Scan(&id)
+		targetUserID, addr, p.City, p.State, p.Zip, rent).Scan(&id)
 	if err != nil {
 		log.Printf("createProperty: database insert error: %v", err)
 		writeErr(w, http.StatusInternalServerError, "internal error")
@@ -541,11 +770,13 @@ func (s *Server) createProperty(w http.ResponseWriter, r *http.Request) {
 	}
 	out := Property{
 		ID:            id,
+		UserID:        targetUserID,
 		StreetAddress: addr,
+		Address:       addr,
 		City:          p.City,
 		State:         p.State,
 		Zip:           p.Zip,
-		MonthlyRent:   p.MonthlyRent,
+		MonthlyRent:   rent,
 	}
 	writeJSON(w, http.StatusCreated, out)
 }

@@ -148,3 +148,69 @@ func TestCFSessionSecurity(t *testing.T) {
 		t.Fatalf("expected 403 when registration email mismatches verified JWT email, got %d", mismatchRec.Code)
 	}
 }
+
+func TestDevLogoutAndGoogleAuthRedirect(t *testing.T) {
+	s := &Server{
+		JWTSecret:    "0123456789abcdef0123456789abcdef",
+		CORSOrigin:   "*",
+		AllowDevAuth: true,
+		DevCFEmail:   "dev@example.com",
+	}
+	handler := s.Routes()
+
+	// 1. Initial dev state: authenticated with DevCFEmail
+	req1 := httptest.NewRequest(http.MethodGet, "/api/auth/cf-session", nil)
+	rec1 := httptest.NewRecorder()
+	handler.ServeHTTP(rec1, req1)
+	var res1 CFSessionResponse
+	_ = json.Unmarshal(rec1.Body.Bytes(), &res1)
+	if !res1.Authenticated || res1.Email != "dev@example.com" {
+		t.Fatalf("expected dev session authenticated as dev@example.com, got %v (%s)", res1.Authenticated, res1.Email)
+	}
+
+	// 2. User logs out: sets dev_cf_logged_out=true
+	logoutReq := httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
+	logoutRec := httptest.NewRecorder()
+	handler.ServeHTTP(logoutRec, logoutReq)
+	if logoutRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on logout, got %d", logoutRec.Code)
+	}
+	var devLogoutCookie *http.Cookie
+	for _, c := range logoutRec.Result().Cookies() {
+		if c.Name == "dev_cf_logged_out" {
+			devLogoutCookie = c
+			break
+		}
+	}
+	if devLogoutCookie == nil || devLogoutCookie.Value != "true" {
+		t.Fatalf("expected dev_cf_logged_out=true cookie, got %v", devLogoutCookie)
+	}
+
+	// 3. User checks session after logout: MUST be unauthenticated! (Not assumed to be logged in)
+	req2 := httptest.NewRequest(http.MethodGet, "/api/auth/cf-session", nil)
+	req2.AddCookie(devLogoutCookie)
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+	var res2 CFSessionResponse
+	_ = json.Unmarshal(rec2.Body.Bytes(), &res2)
+	if res2.Authenticated {
+		t.Fatal("expected unauthenticated after dev logout, but server assumed user is still logged in!")
+	}
+
+	// 4. Production server: GET /api/auth/google without credentials redirects to /cdn-cgi/access/login
+	prodServer := &Server{
+		JWTSecret:    "0123456789abcdef0123456789abcdef",
+		CORSOrigin:   "*",
+		AllowDevAuth: false,
+	}
+	prodHandler := prodServer.Routes()
+	googleReq := httptest.NewRequest(http.MethodGet, "/api/auth/google", nil)
+	googleRec := httptest.NewRecorder()
+	prodHandler.ServeHTTP(googleRec, googleReq)
+	if googleRec.Code != http.StatusFound {
+		t.Fatalf("expected 302 redirect for unauthenticated Google login, got %d", googleRec.Code)
+	}
+	if loc := googleRec.Header().Get("Location"); loc != "/cdn-cgi/access/login" {
+		t.Fatalf("expected Location /cdn-cgi/access/login, got %q", loc)
+	}
+}

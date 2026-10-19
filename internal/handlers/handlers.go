@@ -30,6 +30,8 @@ func (s *Server) Routes() http.Handler {
 	})
 
 	// Auth endpoints (both /api/... and /api/auth/... supported)
+	mux.HandleFunc("GET /api/auth/cf-session", s.cfSession)
+	mux.HandleFunc("GET /api/cf-session", s.cfSession)
 	mux.HandleFunc("POST /api/auth/register", s.register)
 	mux.HandleFunc("POST /api/register", s.register)
 	mux.HandleFunc("POST /api/auth/login", s.login)
@@ -226,28 +228,121 @@ func (s *Server) issueToken(w http.ResponseWriter, id int64, status int) {
 	s.issueAuthTokens(w, &http.Request{}, id, status)
 }
 
+func getCloudflareUserEmail(r *http.Request) string {
+	if email := strings.TrimSpace(r.Header.Get("Cf-Access-Authenticated-User-Email")); email != "" {
+		return email
+	}
+	if devEmail := strings.TrimSpace(os.Getenv("DEV_CF_EMAIL")); devEmail != "" {
+		return devEmail
+	}
+	return ""
+}
+
+type CFSessionResponse struct {
+	Authenticated bool          `json:"authenticated"`
+	Registered    bool          `json:"registered"`
+	Email         string        `json:"email,omitempty"`
+	User          *UserResponse `json:"user,omitempty"`
+	AccessToken   string        `json:"access_token,omitempty"`
+	Token         string        `json:"token,omitempty"`
+}
+
+func (s *Server) cfSession(w http.ResponseWriter, r *http.Request) {
+	cfEmail := getCloudflareUserEmail(r)
+	if cfEmail == "" {
+		writeJSON(w, http.StatusOK, CFSessionResponse{
+			Authenticated: false,
+			Registered:    false,
+		})
+		return
+	}
+
+	if s.DB == nil {
+		writeJSON(w, http.StatusOK, CFSessionResponse{
+			Authenticated: true,
+			Registered:    false,
+			Email:         cfEmail,
+		})
+		return
+	}
+
+	var u UserResponse
+	err := s.DB.QueryRow(r.Context(),
+		`SELECT id, name, email, user_role FROM users WHERE LOWER(email) = LOWER($1)`,
+		cfEmail).Scan(&u.ID, &u.Name, &u.Email, &u.UserRole)
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// User is authenticated with Cloudflare Access Google OAuth, but not yet registered in application DB
+			writeJSON(w, http.StatusOK, CFSessionResponse{
+				Authenticated: true,
+				Registered:    false,
+				Email:         cfEmail,
+			})
+			return
+		}
+		log.Printf("cfSession: database query error for %q: %v", cfEmail, err)
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	// User exists in database - issue auth tokens immediately
+	accessToken, err := auth.NewAccessToken(s.JWTSecret, u.ID, u.Email, u.Name, u.UserRole)
+	if err != nil {
+		log.Printf("cfSession: access token generation error for user %d: %v", u.ID, err)
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	refreshToken, err := auth.NewRefreshToken(s.JWTSecret, u.ID)
+	if err != nil {
+		log.Printf("cfSession: refresh token generation error for user %d: %v", u.ID, err)
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	s.setRefreshTokenCookie(w, r, refreshToken)
+
+	writeJSON(w, http.StatusOK, CFSessionResponse{
+		Authenticated: true,
+		Registered:    true,
+		Email:         u.Email,
+		User:          &u,
+		AccessToken:   accessToken,
+		Token:         accessToken,
+	})
+}
+
 func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	var req registerRequest
 	if !decode(w, r, &req) {
 		return
 	}
+	cfEmail := getCloudflareUserEmail(r)
+
 	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
 		log.Printf("register: name is required")
 		writeErr(w, http.StatusBadRequest, "name is required")
 		return
 	}
+
+	// If authenticated via Cloudflare Access, enforce that the email matches Google OAuth
+	if cfEmail != "" {
+		if req.Email == "" {
+			req.Email = cfEmail
+		} else if !strings.EqualFold(strings.TrimSpace(req.Email), cfEmail) {
+			log.Printf("register: email mismatch: req=%q cf=%q", req.Email, cfEmail)
+			writeErr(w, http.StatusForbidden, "registration email must match authenticated Google account")
+			return
+		}
+	}
+
 	if _, err := mail.ParseAddress(req.Email); err != nil {
 		log.Printf("register: invalid email %q: %v", req.Email, err)
 		writeErr(w, http.StatusBadRequest, "invalid email")
 		return
 	}
-	// bcrypt only uses the first 72 bytes
-	if len(req.Password) < 8 || len(req.Password) > 72 {
-		log.Printf("register: password must be 8-72 characters (got %d)", len(req.Password))
-		writeErr(w, http.StatusBadRequest, "password must be 8-72 characters")
-		return
-	}
+
 	role := req.UserRole
 	if role == "" {
 		role = req.UserRoleC
@@ -262,16 +357,32 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hash, err := auth.HashPassword(req.Password)
-	if err != nil {
-		log.Printf("register: password hashing error: %v", err)
-		writeErr(w, http.StatusInternalServerError, "internal error")
+	var passwordHash *string
+	if req.Password != "" {
+		// bcrypt only uses the first 72 bytes
+		if len(req.Password) < 8 || len(req.Password) > 72 {
+			log.Printf("register: password must be 8-72 characters (got %d)", len(req.Password))
+			writeErr(w, http.StatusBadRequest, "password must be 8-72 characters")
+			return
+		}
+		hash, err := auth.HashPassword(req.Password)
+		if err != nil {
+			log.Printf("register: password hashing error: %v", err)
+			writeErr(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		passwordHash = &hash
+	} else if cfEmail == "" {
+		// For standard non-OAuth registration, password is required
+		log.Printf("register: password is required")
+		writeErr(w, http.StatusBadRequest, "password is required")
 		return
 	}
+
 	var id int64
-	err = s.DB.QueryRow(r.Context(),
+	err := s.DB.QueryRow(r.Context(),
 		`INSERT INTO users (name, email, password_hash, user_role) VALUES ($1, $2, $3, $4) RETURNING id`,
-		req.Name, req.Email, hash, role).Scan(&id)
+		req.Name, req.Email, passwordHash, role).Scan(&id)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -292,7 +403,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var id int64
-	var hash string
+	var hash *string
 	err := s.DB.QueryRow(r.Context(),
 		`SELECT id, password_hash FROM users WHERE email = $1`, c.Email).Scan(&id, &hash)
 	if err != nil {
@@ -304,8 +415,8 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "invalid email or password")
 		return
 	}
-	if !auth.CheckPassword(hash, c.Password) {
-		log.Printf("login: invalid password for user: %s", c.Email)
+	if hash == nil || *hash == "" || !auth.CheckPassword(*hash, c.Password) {
+		log.Printf("login: invalid password or passwordless user: %s", c.Email)
 		writeErr(w, http.StatusUnauthorized, "invalid email or password")
 		return
 	}

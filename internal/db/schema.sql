@@ -1,11 +1,14 @@
 CREATE TABLE IF NOT EXISTS users (
     id BIGSERIAL PRIMARY KEY,
     email TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
+    password_hash TEXT,
     name TEXT NOT NULL,
     user_role TEXT NOT NULL CHECK (user_role IN ('ADMIN', 'VIEWER')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Ensure existing databases allow passwordless/OAuth users
+ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
 
 CREATE TABLE IF NOT EXISTS properties (
     id BIGSERIAL PRIMARY KEY,

@@ -25,12 +25,17 @@ type Server struct {
 	CFValidator  *auth.CFValidator
 	DevCFEmail   string
 	AllowDevAuth bool
+	AuthLimiter  *AuthLimiter // brute-force protection for /login and /register; defaults applied if nil
 }
 
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	authMW := auth.Middleware(s.JWTSecret)
 	adminMW := s.adminMiddleware
+	if s.AuthLimiter == nil {
+		s.AuthLimiter = NewAuthLimiter()
+	}
+	limitMW := s.AuthLimiter.Middleware
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -38,10 +43,10 @@ func (s *Server) Routes() http.Handler {
 	// Auth endpoints (both /api/... and /api/auth/... supported)
 	mux.HandleFunc("GET /api/auth/cf-session", s.cfSession)
 	mux.HandleFunc("GET /api/cf-session", s.cfSession)
-	mux.HandleFunc("POST /api/auth/register", s.register)
-	mux.HandleFunc("POST /api/register", s.register)
-	mux.HandleFunc("POST /api/auth/login", s.login)
-	mux.HandleFunc("POST /api/login", s.login)
+	mux.Handle("POST /api/auth/register", limitMW(http.HandlerFunc(s.register)))
+	mux.Handle("POST /api/register", limitMW(http.HandlerFunc(s.register)))
+	mux.Handle("POST /api/auth/login", limitMW(http.HandlerFunc(s.login)))
+	mux.Handle("POST /api/login", limitMW(http.HandlerFunc(s.login)))
 	mux.HandleFunc("POST /api/auth/refresh", s.refresh)
 	mux.HandleFunc("POST /api/refresh", s.refresh)
 	mux.HandleFunc("POST /api/auth/logout", s.logout)
@@ -319,7 +324,7 @@ func (s *Server) cfSession(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		log.Printf("cfSession: database query error for %q: %v", cfEmail, err)
+		log.Printf("cfSession: database query error: %v", err)
 		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -369,14 +374,14 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		if req.Email == "" {
 			req.Email = cfEmail
 		} else if !strings.EqualFold(strings.TrimSpace(req.Email), cfEmail) {
-			log.Printf("register: email mismatch: req=%q cf=%q", req.Email, cfEmail)
+			log.Printf("register: request email does not match Cloudflare Access identity")
 			writeErr(w, http.StatusForbidden, "registration email must match authenticated Google account")
 			return
 		}
 	}
 
 	if _, err := mail.ParseAddress(req.Email); err != nil {
-		log.Printf("register: invalid email %q: %v", req.Email, err)
+		log.Printf("register: invalid email address")
 		writeErr(w, http.StatusBadRequest, "invalid email")
 		return
 	}
@@ -395,7 +400,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			log.Printf("register: email %q already registered", req.Email)
+			log.Printf("register: email already registered")
 			writeErr(w, http.StatusConflict, "email already registered")
 			return
 		}
@@ -423,7 +428,6 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		`SELECT id FROM users WHERE LOWER(email) = LOWER($1)`, cfEmail).Scan(&id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			log.Printf("login: user not found: %s", cfEmail)
 			writeErr(w, http.StatusNotFound, "user not registered; please complete registration")
 			return
 		}

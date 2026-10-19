@@ -8,7 +8,7 @@ Go REST API backed by Postgres.
 
     export DATABASE_URL=postgres://localhost:5432/rixus?sslmode=disable
     export JWT_SECRET=<at least 32 random characters>
-    export CORS_ORIGIN=http://localhost:3000   # optional
+    export CORS_ORIGIN=http://localhost:3000   # required; comma-separated list of exact origins, no "*"
     go run ./cmd/server
 
 ### Option 2: Running with Docker Compose (Recommended)

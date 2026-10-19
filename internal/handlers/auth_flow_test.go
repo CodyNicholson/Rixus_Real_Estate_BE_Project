@@ -185,3 +185,45 @@ func TestAccessTokenClaims(t *testing.T) {
 		t.Errorf("expected UserRole ADMIN, got %q", claims.UserRole)
 	}
 }
+
+func TestCORSRejectsUnlistedOrigin(t *testing.T) {
+	for _, cfg := range []string{"http://localhost:3000", "*", ""} {
+		s := &Server{
+			JWTSecret:  "0123456789abcdef0123456789abcdef",
+			CORSOrigin: cfg,
+		}
+		handler := s.Routes()
+
+		req := httptest.NewRequest(http.MethodOptions, "/api/refresh", nil)
+		req.Header.Set("Origin", "https://evil.example")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("CORSOrigin=%q: expected 403 for disallowed preflight, got %d", cfg, rec.Code)
+		}
+		if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+			t.Errorf("CORSOrigin=%q: expected no Access-Control-Allow-Origin, got %q", cfg, got)
+		}
+		if got := rec.Header().Get("Access-Control-Allow-Credentials"); got != "" {
+			t.Errorf("CORSOrigin=%q: expected no Access-Control-Allow-Credentials, got %q", cfg, got)
+		}
+	}
+}
+
+func TestCORSAllowsListedOrigins(t *testing.T) {
+	s := &Server{
+		JWTSecret:  "0123456789abcdef0123456789abcdef",
+		CORSOrigin: "https://app.example.com, http://localhost:3000",
+	}
+	handler := s.Routes()
+
+	req := httptest.NewRequest(http.MethodOptions, "/api/refresh", nil)
+	req.Header.Set("Origin", "https://app.example.com")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "https://app.example.com" {
+		t.Errorf("expected Access-Control-Allow-Origin: https://app.example.com, got %q", got)
+	}
+}

@@ -53,8 +53,21 @@ func TestLoadValidation(t *testing.T) {
 		t.Error("expected error for short JWT_SECRET")
 	}
 
-	// Valid config
+	// Missing CORS_ORIGIN fails closed
 	t.Setenv("JWT_SECRET", "0123456789abcdef0123456789abcdef")
+	t.Setenv("CORS_ORIGIN", "")
+	if _, err := Load(); err == nil {
+		t.Error("expected error for missing CORS_ORIGIN")
+	}
+
+	// Wildcard CORS_ORIGIN is rejected
+	t.Setenv("CORS_ORIGIN", "*")
+	if _, err := Load(); err == nil {
+		t.Error("expected error for wildcard CORS_ORIGIN")
+	}
+
+	// Valid config
+	t.Setenv("CORS_ORIGIN", "https://app.example.com")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -65,6 +78,7 @@ func TestLoadValidation(t *testing.T) {
 }
 
 func TestLoadCloudflareConfig(t *testing.T) {
+	t.Setenv("CORS_ORIGIN", "http://localhost:3000")
 	t.Setenv("DATABASE_URL", "postgres://localhost:5432/rixus")
 	t.Setenv("JWT_SECRET", "0123456789abcdef0123456789abcdef")
 	t.Setenv("CF_TEAM_DOMAIN", "https://myteam.cloudflareaccess.com")
@@ -83,6 +97,7 @@ func TestLoadCloudflareConfig(t *testing.T) {
 }
 
 func TestLoadWithDBHost(t *testing.T) {
+	t.Setenv("CORS_ORIGIN", "http://localhost:3000")
 	t.Setenv("DATABASE_URL", "")
 	t.Setenv("DB_HOST", "db")
 	t.Setenv("DB_PORT", "5432")

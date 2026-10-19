@@ -12,7 +12,7 @@ services:
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=${DB_NAME:-rixus}
       - JWT_SECRET=${JWT_SECRET}
-      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3000}
+      - CORS_ORIGIN=${CORS_ORIGIN:?CORS_ORIGIN must be set to the frontend origin, e.g. https://app.example.com}
       - CF_TEAM_DOMAIN=${CF_TEAM_DOMAIN:-}
       - CF_POLICY_AUD=${CF_POLICY_AUD:-}
     depends_on:

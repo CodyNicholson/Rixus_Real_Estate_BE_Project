@@ -29,7 +29,7 @@ func Load() (Config, error) {
 		Port:         getenv("PORT", "8080"),
 		DatabaseURL:  os.Getenv("DATABASE_URL"),
 		JWTSecret:    os.Getenv("JWT_SECRET"),
-		CORSOrigin:   getenv("CORS_ORIGIN", "http://localhost:3000"),
+		CORSOrigin:   strings.TrimSpace(os.Getenv("CORS_ORIGIN")),
 		CFTeamDomain: os.Getenv("CF_TEAM_DOMAIN"),
 		CFPolicyAUD:  os.Getenv("CF_POLICY_AUD"),
 		CFCertsURL:   os.Getenv("CF_CERTS_URL"),
@@ -70,7 +70,31 @@ func Load() (Config, error) {
 	if len(c.JWTSecret) < 32 {
 		return c, errors.New("JWT_SECRET is required and must be at least 32 characters")
 	}
+	if err := validateCORSOrigins(c.CORSOrigin); err != nil {
+		return c, err
+	}
 	return c, nil
+}
+
+// validateCORSOrigins requires CORS_ORIGIN to be a comma-separated list of
+// explicit origins (scheme://host[:port]). Wildcards are rejected because the
+// server sends Access-Control-Allow-Credentials: true.
+func validateCORSOrigins(v string) error {
+	if v == "" {
+		return errors.New("CORS_ORIGIN is required (e.g. https://app.example.com)")
+	}
+	for _, o := range strings.Split(v, ",") {
+		o = strings.TrimSpace(o)
+		if o == "" || o == "*" || strings.Contains(o, "*") {
+			return fmt.Errorf("CORS_ORIGIN contains invalid origin %q: wildcards and empty entries are not allowed", o)
+		}
+		u, err := url.Parse(o)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
+			(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+			return fmt.Errorf("CORS_ORIGIN contains invalid origin %q: must be scheme://host[:port]", o)
+		}
+	}
+	return nil
 }
 
 func getenv(k, d string) string {

@@ -90,22 +90,35 @@ func (s *Server) logging(next http.Handler) http.Handler {
 }
 
 func (s *Server) cors(next http.Handler) http.Handler {
+	allowed := map[string]bool{}
+	for _, o := range strings.Split(s.CORSOrigin, ",") {
+		o = strings.TrimRight(strings.TrimSpace(o), "/")
+		// Fail closed: wildcards are never honored since we allow credentials.
+		if o != "" && !strings.Contains(o, "*") {
+			allowed[o] = true
+		}
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Add("Vary", "Origin")
 		origin := r.Header.Get("Origin")
-		allowedOrigin := s.CORSOrigin
-		if allowedOrigin == "" || allowedOrigin == "*" {
-			if origin != "" {
-				allowedOrigin = origin
-			} else {
-				allowedOrigin = "http://localhost:3000"
+		if origin == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if !allowed[origin] {
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusForbidden)
+				return
 			}
+			next.ServeHTTP(w, r)
+			return
 		}
 
-		w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept, X-Requested-With")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Vary", "Origin")
 
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

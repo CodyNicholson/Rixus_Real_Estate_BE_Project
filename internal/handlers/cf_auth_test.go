@@ -147,6 +147,20 @@ func TestCFSessionSecurity(t *testing.T) {
 	if mismatchRec.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 when registration email mismatches verified JWT email, got %d", mismatchRec.Code)
 	}
+
+	// Test 5: REGISTRATION: Request without Cloudflare Access credentials is rejected with 401
+	unauthBody, _ := json.Marshal(map[string]any{
+		"name":  "Unverified User",
+		"email": "unverified@example.com",
+	})
+	unauthReq := httptest.NewRequest(http.MethodPost, "/api/auth/register", bytes.NewReader(unauthBody))
+	unauthReq.Header.Set("Content-Type", "application/json")
+	unauthRec := httptest.NewRecorder()
+	handler.ServeHTTP(unauthRec, unauthReq)
+
+	if unauthRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 when registration has no Cloudflare Access credentials, got %d", unauthRec.Code)
+	}
 }
 
 func TestDevLogoutAndGoogleAuthRedirect(t *testing.T) {

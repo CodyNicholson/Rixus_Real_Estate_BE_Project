@@ -11,10 +11,32 @@ import (
 	"github.com/CodyNicholson/Rixus_Real_Estate_BE_Project/internal/auth"
 )
 
-func TestRegisterValidation(t *testing.T) {
+func TestRegisterRequiresCloudflareAccess(t *testing.T) {
 	s := &Server{
 		JWTSecret:  "0123456789abcdef0123456789abcdef",
 		CORSOrigin: "*",
+	}
+	handler := s.Routes()
+
+	// Calling registration without Cloudflare Access credentials returns 401 Unauthorized
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/register", strings.NewReader(`{"name":"Alice","email":"alice@example.com"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without Cloudflare Access credentials, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Cloudflare Access Google OAuth authentication required") {
+		t.Fatalf("expected error message to mention Cloudflare Access Google OAuth, got %s", rec.Body.String())
+	}
+}
+
+func TestRegisterValidation(t *testing.T) {
+	s := &Server{
+		JWTSecret:    "0123456789abcdef0123456789abcdef",
+		CORSOrigin:   "*",
+		AllowDevAuth: true,
 	}
 	handler := s.Routes()
 
@@ -57,6 +79,9 @@ func TestRegisterValidation(t *testing.T) {
 			b, _ := json.Marshal(tt.body)
 			req := httptest.NewRequest(http.MethodPost, "/api/auth/register", bytes.NewReader(b))
 			req.Header.Set("Content-Type", "application/json")
+			if emailStr, ok := tt.body["email"].(string); ok {
+				req.Header.Set("X-Dev-Email", emailStr)
+			}
 			rec := httptest.NewRecorder()
 
 			handler.ServeHTTP(rec, req)
@@ -154,8 +179,10 @@ func TestAdminPromoteEndpoint(t *testing.T) {
 
 func TestRegisterIgnoresUserRole(t *testing.T) {
 	s := &Server{
-		JWTSecret:  "0123456789abcdef0123456789abcdef",
-		CORSOrigin: "*",
+		JWTSecret:    "0123456789abcdef0123456789abcdef",
+		CORSOrigin:   "*",
+		AllowDevAuth: true,
+		DevCFEmail:   "attacker@example.com",
 	}
 	handler := s.Routes()
 

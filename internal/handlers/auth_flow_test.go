@@ -152,12 +152,14 @@ func TestMeEndpointUnauthorized(t *testing.T) {
 	}
 	handler := s.Routes()
 
-	req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
+	for _, path := range []string{"/api/users/me", "/api/me", "/api/auth/me"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401 for unauthorized /api/me, got %d", rec.Code)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("path %s: expected 401 for unauthorized, got %d", path, rec.Code)
+		}
 	}
 }
 

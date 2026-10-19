@@ -41,15 +41,15 @@ type CFSessionResponse struct {
 }
 
 // registerAuthRoutes registers endpoints on the auth controller.
-func (s *Server) registerAuthRoutes(mux *http.ServeMux, authMW func(http.Handler) http.Handler) {
+func (s *Server) registerAuthRoutes(mux *http.ServeMux, authMW func(http.Handler) http.Handler, limitMW func(http.Handler) http.Handler) {
 	mux.HandleFunc("GET /api/auth/google", s.authGoogle)
 	mux.HandleFunc("GET /api/auth/login", s.authGoogle)
 	mux.HandleFunc("GET /api/auth/cf-session", s.cfSession)
 	mux.HandleFunc("GET /api/cf-session", s.cfSession)
-	mux.HandleFunc("POST /api/auth/register", s.register)
-	mux.HandleFunc("POST /api/register", s.register)
-	mux.HandleFunc("POST /api/auth/login", s.login)
-	mux.HandleFunc("POST /api/login", s.login)
+	mux.Handle("POST /api/auth/register", limitMW(http.HandlerFunc(s.register)))
+	mux.Handle("POST /api/register", limitMW(http.HandlerFunc(s.register)))
+	mux.Handle("POST /api/auth/login", limitMW(http.HandlerFunc(s.login)))
+	mux.Handle("POST /api/login", limitMW(http.HandlerFunc(s.login)))
 	mux.HandleFunc("POST /api/auth/refresh", s.refresh)
 	mux.HandleFunc("POST /api/refresh", s.refresh)
 	mux.HandleFunc("POST /api/auth/logout", s.logout)

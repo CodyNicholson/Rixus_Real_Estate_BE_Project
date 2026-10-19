@@ -18,6 +18,7 @@ type Server struct {
 	CFValidator  *auth.CFValidator
 	DevCFEmail   string
 	AllowDevAuth bool
+	AuthLimiter  *AuthLimiter // brute-force protection for /login and /register; defaults applied if nil
 }
 
 func (s *Server) Routes() http.Handler {
@@ -25,12 +26,17 @@ func (s *Server) Routes() http.Handler {
 	authMW := auth.Middleware(s.JWTSecret)
 	adminMW := s.adminMiddleware
 
+	if s.AuthLimiter == nil {
+		s.AuthLimiter = NewAuthLimiter()
+	}
+	limitMW := s.AuthLimiter.Middleware
+
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
 	// Register endpoints from separated controllers
-	s.registerAuthRoutes(mux, authMW)
+	s.registerAuthRoutes(mux, authMW, limitMW)
 	s.registerUserRoutes(mux, authMW)
 	s.registerPropertyRoutes(mux, authMW)
 	s.registerAdminRoutes(mux, authMW, adminMW)

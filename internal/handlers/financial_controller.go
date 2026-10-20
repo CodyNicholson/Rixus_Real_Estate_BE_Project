@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/CodyNicholson/Rixus_Real_Estate_BE_Project/internal/auth"
 	"github.com/jackc/pgx/v5"
@@ -100,27 +99,6 @@ type FinancialDashboard struct {
 	LegalEntities []LegalEntity      `json:"legal_entities"`
 }
 
-// Unit is one row of a property's rent roll.
-type Unit struct {
-	ID                    int64      `json:"id" db:"id"`
-	PropertyID            int64      `json:"property_id" db:"property_id"`
-	UnitNumber            string     `json:"unit_number" db:"unit_number"`
-	FloorPlanName         *string    `json:"floor_plan_name" db:"floor_plan_name"`
-	Bedrooms              float64    `json:"bedrooms" db:"bedrooms"`
-	Bathrooms             float64    `json:"bathrooms" db:"bathrooms"`
-	RentableSqFt          int        `json:"rentable_sq_ft" db:"rentable_sq_ft"`
-	Status                string     `json:"status" db:"status"`
-	IsRenovated           bool       `json:"is_renovated" db:"is_renovated"`
-	MarketRent            float64    `json:"market_rent" db:"market_rent"`
-	InPlaceRent           float64    `json:"in_place_rent" db:"in_place_rent"`
-	MonthlyRUBSCharge     float64    `json:"monthly_rubs_charge" db:"monthly_rubs_charge"`
-	MonthlyPetRent        float64    `json:"monthly_pet_rent" db:"monthly_pet_rent"`
-	MonthlyParkingStorage float64    `json:"monthly_parking_storage" db:"monthly_parking_storage"`
-	SecurityDeposit       float64    `json:"security_deposit" db:"security_deposit"`
-	LeaseStartDate        *time.Time `json:"lease_start_date" db:"lease_start_date"`
-	LeaseEndDate          *time.Time `json:"lease_end_date" db:"lease_end_date"`
-}
-
 // financialFilter narrows the dashboard to a subset of the target user's properties; empty fields match everything.
 type financialFilter struct {
 	Categories    []string
@@ -131,7 +109,6 @@ type financialFilter struct {
 // registerFinancialRoutes registers endpoints on the financial controller.
 func (s *Server) registerFinancialRoutes(mux *http.ServeMux, authMW func(http.Handler) http.Handler) {
 	mux.Handle("GET /api/financials/dashboard", authMW(http.HandlerFunc(s.financialDashboard)))
-	mux.Handle("GET /api/properties/{id}/units", authMW(http.HandlerFunc(s.listUnits)))
 }
 
 func parsePositiveInt(v string) (int64, bool) {
@@ -273,36 +250,4 @@ func (s *Server) financialDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, FinancialDashboard{Summary: summary, Properties: props, LegalEntities: entities})
-}
-
-func (s *Server) listUnits(w http.ResponseWriter, r *http.Request) {
-	propID, ok := parsePathID(r, "id")
-	if !ok {
-		writeErr(w, http.StatusBadRequest, "invalid property id")
-		return
-	}
-	if s.DB == nil {
-		writeErr(w, http.StatusInternalServerError, "database not configured")
-		return
-	}
-	if _, ok := s.authorizeProperty(w, r, "listUnits", propID); !ok {
-		return
-	}
-	rows, err := s.DB.Query(r.Context(),
-		`SELECT id, property_id, unit_number, floor_plan_name, bedrooms, bathrooms, rentable_sq_ft, status::text AS status,
-		        is_renovated, market_rent, in_place_rent, monthly_rubs_charge, monthly_pet_rent, monthly_parking_storage,
-		        security_deposit, lease_start_date, lease_end_date
-		 FROM units WHERE property_id = $1 ORDER BY unit_number, id`, propID)
-	if err != nil {
-		log.Printf("listUnits: query error: %v", err)
-		writeErr(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	units, err := pgx.CollectRows(rows, pgx.RowToStructByName[Unit])
-	if err != nil {
-		log.Printf("listUnits: scan error: %v", err)
-		writeErr(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	writeJSON(w, http.StatusOK, units)
 }

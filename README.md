@@ -38,7 +38,10 @@ Pass `-v owner_email=you@example.com` to seed a single user instead.
 
 Endpoints: `GET /health`, `POST /api/login` (or `/api/auth/login`), `POST /api/register` (or `/api/auth/register`),
 `POST /api/refresh` (or `/api/auth/refresh`), `POST /api/logout` (or `/api/auth/logout`),
-`GET|POST /api/properties`, `GET /api/properties/{id}/units`, `GET /api/financials/dashboard`
+`GET|POST /api/properties`, `GET|PUT|DELETE /api/properties/{id}` (delete also removes the property's tenants, units,
+loans, underwriting models and ledger transactions), `GET|POST /api/properties/{id}/units`, `PUT|DELETE /api/properties/{id}/units/{unitId}`,
+`GET|POST /api/properties/{id}/loans`, `PUT|DELETE /api/properties/{id}/loans/{loanId}`, `GET|PUT /api/properties/{id}/underwriting`,
+`GET|POST /api/properties/{id}/ledger`, `PUT|DELETE /api/properties/{id}/ledger/{transactionId}`, `GET /api/financials/dashboard`
 (require a JWT in the `Authorization: Bearer <token>` header),
 `GET /swagger/` (interactive Swagger UI API documentation — navigating to `/`, `/swagger`, or `/docs` automatically redirects here).
 

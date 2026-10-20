@@ -417,6 +417,99 @@
             "description": "Not found"
           }
         }
+      },
+      "put": {
+        "summary": "Update property",
+        "description": "Replaces the property's address, unit count and financial fields; omitted financial fields reset to their defaults. units cannot drop below the highest unit a tenant occupies, and legal_entity_id must belong to the property owner. Requires owning the property or ADMIN role.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Property ID",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePropertyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Property updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Property"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Property not found, or record not found on this property"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete property",
+        "description": "Permanently deletes the property together with its tenants, units, loans, underwriting models and ledger transactions. Legal entities are kept. Requires owning the property or ADMIN role.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Property ID",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Property and all related data deleted"
+          },
+          "400": {
+            "description": "Invalid ID"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Property not found, or record not found on this property"
+          }
+        }
       }
     },
     "/api/users/{id}/properties": {
@@ -1034,6 +1127,744 @@
             "description": "Property not found"
           }
         }
+      },
+      "post": {
+        "summary": "Add unit",
+        "description": "Adds a unit to the property's rent roll.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Property ID",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnitRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Unit created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unit"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Property not found, or record not found on this property"
+          },
+          "409": {
+            "description": "unit_number already exists on this property"
+          }
+        }
+      }
+    },
+    "/api/properties/{id}/units/{unitId}": {
+      "put": {
+        "summary": "Update unit",
+        "description": "Replaces the unit's fields; omitted optional fields reset to their defaults.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Property ID",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "unitId",
+            "in": "path",
+            "required": true,
+            "description": "Unit ID",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnitRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Unit updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unit"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Property not found, or record not found on this property"
+          },
+          "409": {
+            "description": "unit_number already exists on this property"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete unit",
+        "description": "Deletes the unit. Ledger transactions tagged with it keep the property but lose the unit tag.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Property ID",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "unitId",
+            "in": "path",
+            "required": true,
+            "description": "Unit ID",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Unit deleted"
+          },
+          "400": {
+            "description": "Invalid ID"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Property not found, or record not found on this property"
+          }
+        }
+      }
+    },
+    "/api/properties/{id}/loans": {
+      "get": {
+        "summary": "List loans",
+        "description": "Returns the property's debt facilities, active first.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Property ID",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Loans",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Loan"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid ID"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Property not found, or record not found on this property"
+          }
+        }
+      },
+      "post": {
+        "summary": "Add loan",
+        "description": "Adds a debt facility to the property.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Property ID",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoanRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Loan created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Loan"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Property not found, or record not found on this property"
+          }
+        }
+      }
+    },
+    "/api/properties/{id}/loans/{loanId}": {
+      "put": {
+        "summary": "Update loan",
+        "description": "Replaces the loan's fields; omitted optional fields reset to their defaults.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Property ID",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "loanId",
+            "in": "path",
+            "required": true,
+            "description": "Loan ID",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoanRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Loan updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Loan"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Property not found, or record not found on this property"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete loan",
+        "description": "Deletes the loan.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Property ID",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "loanId",
+            "in": "path",
+            "required": true,
+            "description": "Loan ID",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Loan deleted"
+          },
+          "400": {
+            "description": "Invalid ID"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Property not found, or record not found on this property"
+          }
+        }
+      }
+    },
+    "/api/properties/{id}/underwriting": {
+      "get": {
+        "summary": "Get underwriting model",
+        "description": "Returns the property's primary pro forma model, or the defaults with a null id when none is saved.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Property ID",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Underwriting model",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnderwritingModel"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid ID"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Property not found, or record not found on this property"
+          }
+        }
+      },
+      "put": {
+        "summary": "Save underwriting model",
+        "description": "Creates or replaces the property's primary pro forma model; omitted fields take their defaults.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Property ID",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnderwritingModelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Underwriting model saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnderwritingModel"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Property not found, or record not found on this property"
+          }
+        }
+      }
+    },
+    "/api/properties/{id}/ledger": {
+      "get": {
+        "summary": "List ledger transactions",
+        "description": "Returns the property's actual income and expense entries, newest first.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Property ID",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Earliest transaction date (YYYY-MM-DD)",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "Latest transaction date (YYYY-MM-DD)",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ledger transactions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LedgerTransaction"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid ID"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Property not found, or record not found on this property"
+          }
+        }
+      },
+      "post": {
+        "summary": "Add ledger transaction",
+        "description": "Records an actual income or expense entry.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Property ID",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LedgerTransactionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Transaction created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LedgerTransaction"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Property not found, or record not found on this property"
+          }
+        }
+      }
+    },
+    "/api/properties/{id}/ledger/{transactionId}": {
+      "put": {
+        "summary": "Update ledger transaction",
+        "description": "Replaces the transaction's fields.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Property ID",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "transactionId",
+            "in": "path",
+            "required": true,
+            "description": "Transaction ID",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LedgerTransactionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Transaction updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LedgerTransaction"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Property not found, or record not found on this property"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete ledger transaction",
+        "description": "Deletes the transaction.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Property ID",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "transactionId",
+            "in": "path",
+            "required": true,
+            "description": "Transaction ID",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Transaction deleted"
+          },
+          "400": {
+            "description": "Invalid ID"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Property not found, or record not found on this property"
+          }
+        }
       }
     }
   },
@@ -1469,7 +2300,10 @@
           },
           "user_role": {
             "type": "string",
-            "enum": ["ADMIN", "VIEWER"],
+            "enum": [
+              "ADMIN",
+              "VIEWER"
+            ],
             "example": "ADMIN"
           },
           "created_at": {
@@ -1497,7 +2331,6 @@
           }
         }
       },
-
       "AuthToken": {
         "type": "object",
         "properties": {
@@ -1549,6 +2382,131 @@
             "minimum": 1,
             "maximum": 32767,
             "example": 4
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 150,
+            "example": "Oak Park Bungalow"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "SINGLE_FAMILY",
+              "CONDO_TOWNHOME",
+              "MULTI_FAMILY_2_4",
+              "MULTI_FAMILY_5_PLUS",
+              "MIXED_USE"
+            ],
+            "example": "SINGLE_FAMILY"
+          },
+          "legal_entity_id": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "parcel_pin": {
+            "type": "string",
+            "maxLength": 50,
+            "nullable": true
+          },
+          "year_built": {
+            "type": "integer",
+            "minimum": 1600,
+            "maximum": 2100,
+            "nullable": true
+          },
+          "gross_sq_ft": {
+            "type": "integer",
+            "minimum": 0,
+            "nullable": true
+          },
+          "acquisition_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": "2026-07-01T00:00:00Z"
+          },
+          "purchase_price": {
+            "type": "number",
+            "minimum": 0,
+            "example": 315000
+          },
+          "closing_costs": {
+            "type": "number",
+            "minimum": 0
+          },
+          "initial_rehab_budget": {
+            "type": "number",
+            "minimum": 0
+          },
+          "initial_operating_reserve": {
+            "type": "number",
+            "minimum": 0
+          },
+          "after_repair_value": {
+            "type": "number",
+            "minimum": 0,
+            "nullable": true
+          },
+          "land_value_allocation_pct": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "example": 0.2,
+            "description": "Fraction of the purchase price allocated to land (not depreciated)"
+          },
+          "depreciation_schedule_years": {
+            "type": "number",
+            "exclusiveMinimum": true,
+            "minimum": 0,
+            "maximum": 999.9,
+            "example": 27.5
+          },
+          "utility_config": {
+            "type": "object",
+            "description": "Who pays each utility. Missing keys default to water/trash LANDLORD, electric/gas TENANT.",
+            "properties": {
+              "water": {
+                "type": "string",
+                "enum": [
+                  "LANDLORD",
+                  "TENANT"
+                ]
+              },
+              "electric": {
+                "type": "string",
+                "enum": [
+                  "LANDLORD",
+                  "TENANT"
+                ]
+              },
+              "gas": {
+                "type": "string",
+                "enum": [
+                  "LANDLORD",
+                  "TENANT"
+                ]
+              },
+              "trash": {
+                "type": "string",
+                "enum": [
+                  "LANDLORD",
+                  "TENANT"
+                ]
+              }
+            }
+          },
+          "is_active": {
+            "type": "boolean",
+            "description": "Inactive properties are left out of the financial analysis"
+          },
+          "legal_entity_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -1579,24 +2537,192 @@
             "minimum": 1,
             "maximum": 32767,
             "example": 4
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 150,
+            "example": "Oak Park Bungalow"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "SINGLE_FAMILY",
+              "CONDO_TOWNHOME",
+              "MULTI_FAMILY_2_4",
+              "MULTI_FAMILY_5_PLUS",
+              "MIXED_USE"
+            ],
+            "example": "SINGLE_FAMILY"
+          },
+          "legal_entity_id": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "parcel_pin": {
+            "type": "string",
+            "maxLength": 50,
+            "nullable": true
+          },
+          "year_built": {
+            "type": "integer",
+            "minimum": 1600,
+            "maximum": 2100,
+            "nullable": true
+          },
+          "gross_sq_ft": {
+            "type": "integer",
+            "minimum": 0,
+            "nullable": true
+          },
+          "acquisition_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": "2026-07-01T00:00:00Z"
+          },
+          "purchase_price": {
+            "type": "number",
+            "minimum": 0,
+            "example": 315000
+          },
+          "closing_costs": {
+            "type": "number",
+            "minimum": 0
+          },
+          "initial_rehab_budget": {
+            "type": "number",
+            "minimum": 0
+          },
+          "initial_operating_reserve": {
+            "type": "number",
+            "minimum": 0
+          },
+          "after_repair_value": {
+            "type": "number",
+            "minimum": 0,
+            "nullable": true
+          },
+          "land_value_allocation_pct": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "example": 0.2,
+            "description": "Fraction of the purchase price allocated to land (not depreciated)"
+          },
+          "depreciation_schedule_years": {
+            "type": "number",
+            "exclusiveMinimum": true,
+            "minimum": 0,
+            "maximum": 999.9,
+            "example": 27.5
+          },
+          "utility_config": {
+            "type": "object",
+            "description": "Who pays each utility. Missing keys default to water/trash LANDLORD, electric/gas TENANT.",
+            "properties": {
+              "water": {
+                "type": "string",
+                "enum": [
+                  "LANDLORD",
+                  "TENANT"
+                ]
+              },
+              "electric": {
+                "type": "string",
+                "enum": [
+                  "LANDLORD",
+                  "TENANT"
+                ]
+              },
+              "gas": {
+                "type": "string",
+                "enum": [
+                  "LANDLORD",
+                  "TENANT"
+                ]
+              },
+              "trash": {
+                "type": "string",
+                "enum": [
+                  "LANDLORD",
+                  "TENANT"
+                ]
+              }
+            }
+          },
+          "is_active": {
+            "type": "boolean",
+            "description": "Inactive properties are left out of the financial analysis"
           }
-        }
+        },
+        "description": "Create or replace a property. Omitted financial fields take their defaults (on PUT, they reset to them)."
       },
       "Tenant": {
         "type": "object",
         "properties": {
-          "tenant_id": { "type": "integer", "format": "int64", "example": 1 },
-          "tenant_initials": { "type": "string", "maxLength": 4, "example": "JD" },
-          "property_id": { "type": "integer", "format": "int64", "example": 1 },
-          "unit_number": { "type": "integer", "example": 1 },
-          "monthly_rent": { "type": "number", "format": "double", "example": 1850.00 },
-          "pet_count": { "type": "integer", "example": 0 },
-          "move_in_date": { "type": "string", "format": "date-time", "nullable": true, "example": "2026-01-01T00:00:00Z" },
-          "move_out_date": { "type": "string", "format": "date-time", "nullable": true, "example": null },
-          "lease_start_date": { "type": "string", "format": "date-time", "nullable": true, "example": "2026-01-01T00:00:00Z" },
-          "lease_end_date": { "type": "string", "format": "date-time", "nullable": true, "example": "2026-12-31T00:00:00Z" },
-          "security_deposit": { "type": "number", "format": "double", "example": 1850.00 },
-          "created_at": { "type": "string", "format": "date-time", "example": "2026-10-20T15:24:28Z" }
+          "tenant_id": {
+            "type": "integer",
+            "format": "int64",
+            "example": 1
+          },
+          "tenant_initials": {
+            "type": "string",
+            "maxLength": 4,
+            "example": "JD"
+          },
+          "property_id": {
+            "type": "integer",
+            "format": "int64",
+            "example": 1
+          },
+          "unit_number": {
+            "type": "integer",
+            "example": 1
+          },
+          "monthly_rent": {
+            "type": "number",
+            "format": "double",
+            "example": 1850.0
+          },
+          "pet_count": {
+            "type": "integer",
+            "example": 0
+          },
+          "move_in_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": "2026-01-01T00:00:00Z"
+          },
+          "move_out_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": null
+          },
+          "lease_start_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": "2026-01-01T00:00:00Z"
+          },
+          "lease_end_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": "2026-12-31T00:00:00Z"
+          },
+          "security_deposit": {
+            "type": "number",
+            "format": "double",
+            "example": 1850.0
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-10-20T15:24:28Z"
+          }
         }
       },
       "TenantRequest": {
@@ -1606,15 +2732,64 @@
           "monthly_rent"
         ],
         "properties": {
-          "tenant_initials": { "type": "string", "minLength": 1, "maxLength": 4, "example": "JD" },
-          "unit_number": { "type": "integer", "minimum": 1, "default": 1, "example": 1 },
-          "monthly_rent": { "type": "number", "format": "double", "minimum": 0, "maximum": 9999999999.99, "example": 1850.00 },
-          "pet_count": { "type": "integer", "minimum": 0, "maximum": 32767, "default": 0, "example": 0 },
-          "move_in_date": { "type": "string", "format": "date-time", "nullable": true, "example": "2026-01-01T00:00:00Z" },
-          "move_out_date": { "type": "string", "format": "date-time", "nullable": true, "example": null },
-          "lease_start_date": { "type": "string", "format": "date-time", "nullable": true, "example": "2026-01-01T00:00:00Z" },
-          "lease_end_date": { "type": "string", "format": "date-time", "nullable": true, "example": "2026-12-31T00:00:00Z" },
-          "security_deposit": { "type": "number", "format": "double", "minimum": 0, "maximum": 9999999999.99, "default": 0, "example": 1850.00 }
+          "tenant_initials": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4,
+            "example": "JD"
+          },
+          "unit_number": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 1,
+            "example": 1
+          },
+          "monthly_rent": {
+            "type": "number",
+            "format": "double",
+            "minimum": 0,
+            "maximum": 9999999999.99,
+            "example": 1850.0
+          },
+          "pet_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 32767,
+            "default": 0,
+            "example": 0
+          },
+          "move_in_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": "2026-01-01T00:00:00Z"
+          },
+          "move_out_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": null
+          },
+          "lease_start_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": "2026-01-01T00:00:00Z"
+          },
+          "lease_end_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": "2026-12-31T00:00:00Z"
+          },
+          "security_deposit": {
+            "type": "number",
+            "format": "double",
+            "minimum": 0,
+            "maximum": 9999999999.99,
+            "default": 0,
+            "example": 1850.0
+          }
         }
       },
       "ErrorResponse": {
@@ -1649,8 +2824,564 @@
             "example": "ADMIN"
           }
         }
+      },
+      "UnitRequest": {
+        "type": "object",
+        "required": [
+          "unit_number",
+          "rentable_sq_ft",
+          "market_rent",
+          "in_place_rent"
+        ],
+        "properties": {
+          "unit_number": {
+            "type": "string",
+            "maxLength": 30,
+            "example": "1A"
+          },
+          "floor_plan_name": {
+            "type": "string",
+            "maxLength": 50,
+            "nullable": true
+          },
+          "bedrooms": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 99,
+            "default": 1
+          },
+          "bathrooms": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 99,
+            "default": 1
+          },
+          "rentable_sq_ft": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "OCCUPIED",
+              "VACANT_READY",
+              "VACANT_RENOVATION",
+              "NON_REVENUE_MODEL"
+            ],
+            "default": "OCCUPIED"
+          },
+          "is_renovated": {
+            "type": "boolean"
+          },
+          "market_rent": {
+            "type": "number",
+            "minimum": 0
+          },
+          "in_place_rent": {
+            "type": "number",
+            "minimum": 0
+          },
+          "monthly_rubs_charge": {
+            "type": "number",
+            "minimum": 0
+          },
+          "monthly_pet_rent": {
+            "type": "number",
+            "minimum": 0
+          },
+          "monthly_parking_storage": {
+            "type": "number",
+            "minimum": 0
+          },
+          "security_deposit": {
+            "type": "number",
+            "minimum": 0
+          },
+          "lease_start_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": "2026-07-01T00:00:00Z"
+          },
+          "lease_end_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": "2026-07-01T00:00:00Z"
+          }
+        }
+      },
+      "LoanRequest": {
+        "type": "object",
+        "required": [
+          "original_loan_amount",
+          "current_principal_balance",
+          "interest_rate"
+        ],
+        "properties": {
+          "lender_name": {
+            "type": "string",
+            "maxLength": 100,
+            "nullable": true
+          },
+          "loan_type": {
+            "type": "string",
+            "maxLength": 50,
+            "default": "CONVENTIONAL",
+            "example": "CONVENTIONAL"
+          },
+          "original_loan_amount": {
+            "type": "number",
+            "minimum": 0
+          },
+          "current_principal_balance": {
+            "type": "number",
+            "minimum": 0
+          },
+          "interest_rate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "example": 0.06375,
+            "description": "Annual rate as a fraction"
+          },
+          "amortization_months": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 360
+          },
+          "loan_term_months": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 360
+          },
+          "interest_only_months": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+          },
+          "loan_origination_fees": {
+            "type": "number",
+            "minimum": 0
+          },
+          "monthly_pmi": {
+            "type": "number",
+            "minimum": 0
+          },
+          "is_active": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      },
+      "Loan": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "property_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "lender_name": {
+            "type": "string",
+            "maxLength": 100,
+            "nullable": true
+          },
+          "loan_type": {
+            "type": "string",
+            "maxLength": 50,
+            "default": "CONVENTIONAL",
+            "example": "CONVENTIONAL"
+          },
+          "original_loan_amount": {
+            "type": "number",
+            "minimum": 0
+          },
+          "current_principal_balance": {
+            "type": "number",
+            "minimum": 0
+          },
+          "interest_rate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "example": 0.06375,
+            "description": "Annual rate as a fraction"
+          },
+          "amortization_months": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 360
+          },
+          "loan_term_months": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 360
+          },
+          "interest_only_months": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+          },
+          "loan_origination_fees": {
+            "type": "number",
+            "minimum": 0
+          },
+          "monthly_pmi": {
+            "type": "number",
+            "minimum": 0
+          },
+          "is_active": {
+            "type": "boolean",
+            "default": true
+          },
+          "monthly_payment": {
+            "type": "number",
+            "description": "Scheduled payment used by the analysis (P&I, or interest only during an IO period) plus PMI"
+          }
+        }
+      },
+      "UnderwritingModelRequest": {
+        "type": "object",
+        "description": "Omitted fields take their defaults.",
+        "properties": {
+          "scenario_name": {
+            "type": "string",
+            "maxLength": 100,
+            "default": "Baseline Pro Forma"
+          },
+          "physical_vacancy_pct": {
+            "type": "number",
+            "description": "Physical vacancy (fraction)",
+            "example": 0.05
+          },
+          "credit_loss_concessions_pct": {
+            "type": "number",
+            "description": "Credit loss and concessions (fraction)",
+            "example": 0.01
+          },
+          "monthly_other_property_income": {
+            "type": "number",
+            "minimum": 0
+          },
+          "annual_property_taxes": {
+            "type": "number",
+            "minimum": 0
+          },
+          "annual_insurance": {
+            "type": "number",
+            "minimum": 0
+          },
+          "monthly_hoa_dues": {
+            "type": "number",
+            "minimum": 0
+          },
+          "monthly_landlord_utilities": {
+            "type": "number",
+            "minimum": 0
+          },
+          "monthly_cam_lawn_snow_pest": {
+            "type": "number",
+            "minimum": 0
+          },
+          "annual_admin_legal_cpa": {
+            "type": "number",
+            "minimum": 0
+          },
+          "management_fee_pct_of_egi": {
+            "type": "number",
+            "description": "Management fee, of EGI (fraction)",
+            "example": 0.08
+          },
+          "repairs_maint_pct_of_egi": {
+            "type": "number",
+            "description": "Repairs and maintenance, of EGI (fraction)",
+            "example": 0.05
+          },
+          "annual_repairs_per_unit": {
+            "type": "number",
+            "minimum": 0
+          },
+          "capex_reserve_pct_of_egi": {
+            "type": "number",
+            "description": "CapEx reserve, of EGI (fraction)",
+            "example": 0.05
+          },
+          "annual_capex_per_unit": {
+            "type": "number",
+            "minimum": 0
+          },
+          "annual_rent_growth_pct": {
+            "type": "number",
+            "description": "Annual rent growth, -1 to 1 (fraction)",
+            "example": 0.03
+          },
+          "annual_expense_growth_pct": {
+            "type": "number",
+            "description": "Annual expense growth, -1 to 1 (fraction)",
+            "example": 0.025
+          },
+          "exit_cap_rate_pct": {
+            "type": "number",
+            "description": "Exit cap rate (fraction)",
+            "example": 0.065
+          },
+          "selling_cost_pct": {
+            "type": "number",
+            "description": "Selling costs (fraction)",
+            "example": 0.06
+          },
+          "marginal_income_tax_pct": {
+            "type": "number",
+            "description": "Marginal income tax rate (fraction)",
+            "example": 0.32
+          }
+        }
+      },
+      "UnderwritingModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Null when no model is saved and the defaults apply",
+            "nullable": true
+          },
+          "property_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "scenario_name": {
+            "type": "string",
+            "maxLength": 100,
+            "default": "Baseline Pro Forma"
+          },
+          "physical_vacancy_pct": {
+            "type": "number",
+            "description": "Physical vacancy (fraction)",
+            "example": 0.05
+          },
+          "credit_loss_concessions_pct": {
+            "type": "number",
+            "description": "Credit loss and concessions (fraction)",
+            "example": 0.01
+          },
+          "monthly_other_property_income": {
+            "type": "number",
+            "minimum": 0
+          },
+          "annual_property_taxes": {
+            "type": "number",
+            "minimum": 0
+          },
+          "annual_insurance": {
+            "type": "number",
+            "minimum": 0
+          },
+          "monthly_hoa_dues": {
+            "type": "number",
+            "minimum": 0
+          },
+          "monthly_landlord_utilities": {
+            "type": "number",
+            "minimum": 0
+          },
+          "monthly_cam_lawn_snow_pest": {
+            "type": "number",
+            "minimum": 0
+          },
+          "annual_admin_legal_cpa": {
+            "type": "number",
+            "minimum": 0
+          },
+          "management_fee_pct_of_egi": {
+            "type": "number",
+            "description": "Management fee, of EGI (fraction)",
+            "example": 0.08
+          },
+          "repairs_maint_pct_of_egi": {
+            "type": "number",
+            "description": "Repairs and maintenance, of EGI (fraction)",
+            "example": 0.05
+          },
+          "annual_repairs_per_unit": {
+            "type": "number",
+            "minimum": 0
+          },
+          "capex_reserve_pct_of_egi": {
+            "type": "number",
+            "description": "CapEx reserve, of EGI (fraction)",
+            "example": 0.05
+          },
+          "annual_capex_per_unit": {
+            "type": "number",
+            "minimum": 0
+          },
+          "annual_rent_growth_pct": {
+            "type": "number",
+            "description": "Annual rent growth, -1 to 1 (fraction)",
+            "example": 0.03
+          },
+          "annual_expense_growth_pct": {
+            "type": "number",
+            "description": "Annual expense growth, -1 to 1 (fraction)",
+            "example": 0.025
+          },
+          "exit_cap_rate_pct": {
+            "type": "number",
+            "description": "Exit cap rate (fraction)",
+            "example": 0.065
+          },
+          "selling_cost_pct": {
+            "type": "number",
+            "description": "Selling costs (fraction)",
+            "example": 0.06
+          },
+          "marginal_income_tax_pct": {
+            "type": "number",
+            "description": "Marginal income tax rate (fraction)",
+            "example": 0.32
+          }
+        }
+      },
+      "LedgerTransactionRequest": {
+        "type": "object",
+        "required": [
+          "transaction_date",
+          "category",
+          "amount"
+        ],
+        "properties": {
+          "unit_id": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Must be a unit of the same property",
+            "nullable": true
+          },
+          "transaction_date": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-03-01T00:00:00Z"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "GROSS_RENT",
+              "RUBS_REIMBURSEMENT",
+              "PET_RENT",
+              "PARKING_STORAGE",
+              "LAUNDRY_VENDING",
+              "OTHER_INCOME",
+              "CONCESSIONS_BAD_DEBT",
+              "PROPERTY_TAX",
+              "INSURANCE",
+              "HOA_DUES",
+              "PROPERTY_MANAGEMENT",
+              "LEASING_FEES",
+              "UTILITIES_WATER_SEWER",
+              "UTILITIES_ELECTRIC_GAS",
+              "UTILITIES_TRASH",
+              "CAM_LAWN_SNOW_PEST",
+              "REPAIRS_MAINTENANCE",
+              "TURNOVER_MAKE_READY",
+              "ADMIN_LEGAL_CPA",
+              "CAPEX_REPLACEMENT",
+              "INITIAL_REHAB_BASIS",
+              "DEBT_PRINCIPAL",
+              "DEBT_INTEREST"
+            ]
+          },
+          "amount": {
+            "type": "number",
+            "description": "Positive amount; the category gives the direction",
+            "example": 1850
+          },
+          "vendor_or_payor": {
+            "type": "string",
+            "maxLength": 150,
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000,
+            "nullable": true
+          }
+        }
+      },
+      "LedgerTransaction": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "property_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "unit_id": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Must be a unit of the same property",
+            "nullable": true
+          },
+          "transaction_date": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-03-01T00:00:00Z"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "GROSS_RENT",
+              "RUBS_REIMBURSEMENT",
+              "PET_RENT",
+              "PARKING_STORAGE",
+              "LAUNDRY_VENDING",
+              "OTHER_INCOME",
+              "CONCESSIONS_BAD_DEBT",
+              "PROPERTY_TAX",
+              "INSURANCE",
+              "HOA_DUES",
+              "PROPERTY_MANAGEMENT",
+              "LEASING_FEES",
+              "UTILITIES_WATER_SEWER",
+              "UTILITIES_ELECTRIC_GAS",
+              "UTILITIES_TRASH",
+              "CAM_LAWN_SNOW_PEST",
+              "REPAIRS_MAINTENANCE",
+              "TURNOVER_MAKE_READY",
+              "ADMIN_LEGAL_CPA",
+              "CAPEX_REPLACEMENT",
+              "INITIAL_REHAB_BASIS",
+              "DEBT_PRINCIPAL",
+              "DEBT_INTEREST"
+            ]
+          },
+          "amount": {
+            "type": "number",
+            "description": "Positive amount; the category gives the direction",
+            "example": 1850
+          },
+          "vendor_or_payor": {
+            "type": "string",
+            "maxLength": 150,
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000,
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
       }
     }
   }
 }
-

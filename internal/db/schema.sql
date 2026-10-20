@@ -17,8 +17,12 @@ CREATE TABLE IF NOT EXISTS properties (
     city TEXT NOT NULL DEFAULT '',
     state TEXT NOT NULL DEFAULT '',
     zip TEXT NOT NULL DEFAULT '',
-    monthly_rent NUMERIC(12,2) NOT NULL DEFAULT 0,
+    units SMALLINT NOT NULL DEFAULT 1 CHECK (units > 0),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- For existing databases, replace monthly_rent with units
+ALTER TABLE properties DROP COLUMN IF EXISTS monthly_rent;
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS units SMALLINT NOT NULL DEFAULT 1 CHECK (units > 0);
 
 CREATE INDEX IF NOT EXISTS properties_user_id_idx ON properties(user_id);

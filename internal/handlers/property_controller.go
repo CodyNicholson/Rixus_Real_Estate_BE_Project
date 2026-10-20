@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,14 +13,14 @@ import (
 )
 
 type Property struct {
-	ID            int64   `json:"id"`
-	UserID        int64   `json:"user_id"`
-	StreetAddress string  `json:"street_address"`
-	Address       string  `json:"address,omitempty"`
-	City          string  `json:"city"`
-	State         string  `json:"state"`
-	Zip           string  `json:"zip"`
-	MonthlyRent   float64 `json:"monthlyRent"`
+	ID            int64  `json:"id"`
+	UserID        int64  `json:"user_id"`
+	StreetAddress string `json:"street_address"`
+	Address       string `json:"address,omitempty"`
+	City          string `json:"city"`
+	State         string `json:"state"`
+	Zip           string `json:"zip"`
+	Units         int    `json:"units"`
 }
 
 // registerPropertyRoutes registers endpoints on the property controller.
@@ -68,7 +69,7 @@ func (s *Server) listProperties(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := s.DB.Query(r.Context(),
-		`SELECT id, user_id, street_address, city, state, zip, monthly_rent::float8 FROM properties WHERE user_id = $1 ORDER BY id`,
+		`SELECT id, user_id, street_address, city, state, zip, units FROM properties WHERE user_id = $1 ORDER BY id`,
 		targetUserID)
 	if err != nil {
 		log.Printf("listProperties: query error: %v", err)
@@ -79,7 +80,7 @@ func (s *Server) listProperties(w http.ResponseWriter, r *http.Request) {
 	props := []Property{}
 	for rows.Next() {
 		var p Property
-		if err := rows.Scan(&p.ID, &p.UserID, &p.StreetAddress, &p.City, &p.State, &p.Zip, &p.MonthlyRent); err != nil {
+		if err := rows.Scan(&p.ID, &p.UserID, &p.StreetAddress, &p.City, &p.State, &p.Zip, &p.Units); err != nil {
 			log.Printf("listProperties: scan error: %v", err)
 			writeErr(w, http.StatusInternalServerError, "internal error")
 			return
@@ -112,8 +113,8 @@ func (s *Server) getProperty(w http.ResponseWriter, r *http.Request) {
 
 	var p Property
 	err = s.DB.QueryRow(r.Context(),
-		`SELECT id, user_id, street_address, city, state, zip, monthly_rent::float8 FROM properties WHERE id = $1`,
-		propID).Scan(&p.ID, &p.UserID, &p.StreetAddress, &p.City, &p.State, &p.Zip, &p.MonthlyRent)
+		`SELECT id, user_id, street_address, city, state, zip, units FROM properties WHERE id = $1`,
+		propID).Scan(&p.ID, &p.UserID, &p.StreetAddress, &p.City, &p.State, &p.Zip, &p.Units)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeErr(w, http.StatusNotFound, "property not found")
@@ -164,13 +165,12 @@ func (s *Server) createProperty(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var p struct {
-		StreetAddress  string  `json:"street_address"`
-		Address        string  `json:"address"`
-		City           string  `json:"city"`
-		State          string  `json:"state"`
-		Zip            string  `json:"zip"`
-		MonthlyRent    float64 `json:"monthlyRent"`
-		MonthlyRentAlt float64 `json:"monthly_rent"`
+		StreetAddress string `json:"street_address"`
+		Address       string `json:"address"`
+		City          string `json:"city"`
+		State         string `json:"state"`
+		Zip           string `json:"zip"`
+		Units         *int   `json:"units"`
 	}
 	if !decode(w, r, &p) {
 		return
@@ -179,13 +179,13 @@ func (s *Server) createProperty(w http.ResponseWriter, r *http.Request) {
 	if addr == "" {
 		addr = strings.TrimSpace(p.Address)
 	}
-	rent := p.MonthlyRent
-	if rent == 0 && p.MonthlyRentAlt > 0 {
-		rent = p.MonthlyRentAlt
+	units := 1
+	if p.Units != nil {
+		units = *p.Units
 	}
-	if addr == "" || rent < 0 {
-		log.Printf("createProperty: invalid input: street_address=%q monthlyRent=%.2f", addr, rent)
-		writeErr(w, http.StatusBadRequest, "street_address is required and monthlyRent must be non-negative")
+	if addr == "" || units < 1 || units > math.MaxInt16 {
+		log.Printf("createProperty: invalid input: street_address=%q units=%d", addr, units)
+		writeErr(w, http.StatusBadRequest, "street_address is required and units must be between 1 and 32767")
 		return
 	}
 	if s.DB == nil {
@@ -194,9 +194,9 @@ func (s *Server) createProperty(w http.ResponseWriter, r *http.Request) {
 	}
 	var id int64
 	err := s.DB.QueryRow(r.Context(),
-		`INSERT INTO properties (user_id, street_address, city, state, zip, monthly_rent)
+		`INSERT INTO properties (user_id, street_address, city, state, zip, units)
 		 VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-		targetUserID, addr, p.City, p.State, p.Zip, rent).Scan(&id)
+		targetUserID, addr, p.City, p.State, p.Zip, units).Scan(&id)
 	if err != nil {
 		log.Printf("createProperty: database insert error: %v", err)
 		writeErr(w, http.StatusInternalServerError, "internal error")
@@ -210,8 +210,7 @@ func (s *Server) createProperty(w http.ResponseWriter, r *http.Request) {
 		City:          p.City,
 		State:         p.State,
 		Zip:           p.Zip,
-		MonthlyRent:   rent,
+		Units:         units,
 	}
 	writeJSON(w, http.StatusCreated, out)
 }
-

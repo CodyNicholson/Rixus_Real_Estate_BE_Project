@@ -98,7 +98,7 @@ func TestPropertyEndpointsAuthAndPermissions(t *testing.T) {
 	}
 
 	// 9. POST /api/properties validation: empty street_address returns 400 Bad Request
-	req = httptest.NewRequest(http.MethodPost, "/api/properties", strings.NewReader(`{"monthlyRent": 1500}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/properties", strings.NewReader(`{"units": 2}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+viewerToken5)
 	rec = httptest.NewRecorder()
@@ -107,14 +107,31 @@ func TestPropertyEndpointsAuthAndPermissions(t *testing.T) {
 		t.Fatalf("expected 400 for empty street_address, got %d. Body: %s", rec.Code, rec.Body.String())
 	}
 
-	// 10. POST /api/properties validation: negative monthlyRent returns 400 Bad Request
-	req = httptest.NewRequest(http.MethodPost, "/api/properties", strings.NewReader(`{"street_address": "123 Main St", "monthlyRent": -50}`))
+	// 10. POST /api/properties validation: units below 1 or above SMALLINT range returns 400 Bad Request
+	for _, body := range []string{
+		`{"street_address": "123 Main St", "units": 0}`,
+		`{"street_address": "123 Main St", "units": -2}`,
+		`{"street_address": "123 Main St", "units": 40000}`,
+	} {
+		req = httptest.NewRequest(http.MethodPost, "/api/properties", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+viewerToken5)
+		rec = httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for invalid units in %s, got %d. Body: %s", body, rec.Code, rec.Body.String())
+		}
+	}
+
+	// 10b. POST /api/properties with units omitted passes validation (defaults to 1)
+	// (Database is uninitialized in unit test so expect 500, NOT 400)
+	req = httptest.NewRequest(http.MethodPost, "/api/properties", strings.NewReader(`{"street_address": "123 Main St"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+viewerToken5)
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for negative monthlyRent, got %d. Body: %s", rec.Code, rec.Body.String())
+	if rec.Code == http.StatusBadRequest {
+		t.Fatalf("expected omitted units to default to 1, got 400. Body: %s", rec.Body.String())
 	}
 
 	// 11. GET /api/properties/abc returns 400 Bad Request for invalid id
@@ -126,4 +143,3 @@ func TestPropertyEndpointsAuthAndPermissions(t *testing.T) {
 		t.Fatalf("expected 400 for invalid property id, got %d. Body: %s", rec.Code, rec.Body.String())
 	}
 }
-

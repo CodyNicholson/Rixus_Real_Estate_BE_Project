@@ -40,6 +40,7 @@ func (s *Server) Routes() http.Handler {
 	s.registerUserRoutes(mux, authMW)
 	s.registerPropertyRoutes(mux, authMW)
 	s.registerTenantRoutes(mux, authMW)
+	s.registerFinancialRoutes(mux, authMW)
 	s.registerAdminRoutes(mux, authMW, adminMW)
 
 	// Swagger documentation

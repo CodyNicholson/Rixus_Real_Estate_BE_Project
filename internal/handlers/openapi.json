@@ -915,6 +915,126 @@
           }
         }
       }
+    },
+    "/api/financials/dashboard": {
+      "get": {
+        "summary": "Financial analysis dashboard",
+        "description": "Returns per-property pro forma metrics and a weighted summary (dollar totals summed before ratios are computed) for the caller's active properties. Filters combine with AND.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "description": "Target user (another user requires ADMIN role)",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "description": "Comma-separated property categories, e.g. SINGLE_FAMILY,CONDO_TOWNHOME",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "legal_entity_id",
+            "in": "query",
+            "required": false,
+            "description": "Only properties held by this legal entity",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "property_id",
+            "in": "query",
+            "required": false,
+            "description": "Comma-separated property ids; a single id scopes the summary to that property",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Summary, per-property metrics and the user's legal entities",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FinancialDashboard"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid filter"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/properties/{id}/units": {
+      "get": {
+        "summary": "Property rent roll",
+        "description": "Returns the property's units ordered by unit number. Requires owning the property or ADMIN role.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Property ID",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Rent roll",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Unit"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid property ID"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Property not found"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -927,6 +1047,409 @@
       }
     },
     "schemas": {
+      "FinancialMetrics": {
+        "type": "object",
+        "description": "Annual pro forma metrics for one property or a weighted rollup of many. Currency fields are annual dollars except monthly_cash_flow; *_pct fields are percentages (7.25 = 7.25%). Ratios are null when their denominator is zero.",
+        "properties": {
+          "scope_id": {
+            "type": "string",
+            "description": "PORTFOLIO, CATEGORY, a legal entity id, or a property id",
+            "example": "PORTFOLIO"
+          },
+          "scope_name": {
+            "type": "string",
+            "example": "Entire Portfolio"
+          },
+          "property_id": {
+            "type": "integer",
+            "format": "int64",
+            "example": 1,
+            "description": "Property rows only"
+          },
+          "property_name": {
+            "type": "string",
+            "description": "Property rows only",
+            "example": "Logan Square 2-Flat"
+          },
+          "legal_entity_id": {
+            "type": "integer",
+            "format": "int64",
+            "example": 1,
+            "description": "Property rows only"
+          },
+          "legal_entity_name": {
+            "type": "string",
+            "description": "Property rows only"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "SINGLE_FAMILY",
+              "CONDO_TOWNHOME",
+              "MULTI_FAMILY_2_4",
+              "MULTI_FAMILY_5_PLUS",
+              "MIXED_USE"
+            ],
+            "description": "Property rows only"
+          },
+          "street_address": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "property_count": {
+            "type": "integer",
+            "format": "int64",
+            "example": 6
+          },
+          "total_units": {
+            "type": "integer",
+            "format": "int64",
+            "example": 17
+          },
+          "occupied_units": {
+            "type": "integer",
+            "format": "int64",
+            "example": 14
+          },
+          "rentable_sq_ft": {
+            "type": "integer",
+            "format": "int64",
+            "example": 19170
+          },
+          "purchase_price": {
+            "type": "number",
+            "format": "double"
+          },
+          "all_in_cost_basis": {
+            "type": "number",
+            "format": "double"
+          },
+          "current_market_value": {
+            "type": "number",
+            "format": "double"
+          },
+          "total_debt": {
+            "type": "number",
+            "format": "double"
+          },
+          "total_equity": {
+            "type": "number",
+            "format": "double"
+          },
+          "total_cash_invested": {
+            "type": "number",
+            "format": "double"
+          },
+          "price_per_door": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "price_per_sq_ft": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "gpr_market": {
+            "type": "number",
+            "format": "double"
+          },
+          "gpr_in_place": {
+            "type": "number",
+            "format": "double"
+          },
+          "loss_to_lease": {
+            "type": "number",
+            "format": "double"
+          },
+          "vacancy_loss": {
+            "type": "number",
+            "format": "double"
+          },
+          "credit_loss": {
+            "type": "number",
+            "format": "double"
+          },
+          "non_revenue_loss": {
+            "type": "number",
+            "format": "double"
+          },
+          "vacancy_and_credit_loss": {
+            "type": "number",
+            "format": "double"
+          },
+          "other_income": {
+            "type": "number",
+            "format": "double"
+          },
+          "effective_gross_income": {
+            "type": "number",
+            "format": "double"
+          },
+          "annual_property_taxes": {
+            "type": "number",
+            "format": "double"
+          },
+          "annual_insurance": {
+            "type": "number",
+            "format": "double"
+          },
+          "annual_hoa": {
+            "type": "number",
+            "format": "double"
+          },
+          "annual_utilities": {
+            "type": "number",
+            "format": "double"
+          },
+          "annual_cam": {
+            "type": "number",
+            "format": "double"
+          },
+          "annual_admin_legal_cpa": {
+            "type": "number",
+            "format": "double"
+          },
+          "annual_management_fee": {
+            "type": "number",
+            "format": "double"
+          },
+          "annual_repairs_maint": {
+            "type": "number",
+            "format": "double"
+          },
+          "total_operating_expenses": {
+            "type": "number",
+            "format": "double"
+          },
+          "noi": {
+            "type": "number",
+            "format": "double"
+          },
+          "annual_capex_reserve": {
+            "type": "number",
+            "format": "double"
+          },
+          "unlevered_cash_flow": {
+            "type": "number",
+            "format": "double"
+          },
+          "annual_debt_service": {
+            "type": "number",
+            "format": "double"
+          },
+          "levered_cash_flow_pre_tax": {
+            "type": "number",
+            "format": "double"
+          },
+          "monthly_cash_flow": {
+            "type": "number",
+            "format": "double"
+          },
+          "annual_interest_expense": {
+            "type": "number",
+            "format": "double"
+          },
+          "annual_depreciation": {
+            "type": "number",
+            "format": "double"
+          },
+          "taxable_net_income": {
+            "type": "number",
+            "format": "double"
+          },
+          "levered_cash_flow_after_tax": {
+            "type": "number",
+            "format": "double"
+          },
+          "cap_rate_pct": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "yield_on_cost_pct": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "cash_on_cash_pct": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "dscr": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "debt_yield_pct": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "ltv_pct": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "opex_ratio_pct": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "break_even_occupancy_pct": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "gross_rent_multiplier": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          }
+        }
+      },
+      "LegalEntity": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "example": 1
+          },
+          "name": {
+            "type": "string",
+            "example": "Bronzeville Holdings LLC"
+          },
+          "entity_type": {
+            "type": "string",
+            "example": "HOLDING_LLC"
+          },
+          "bank_account_last4": {
+            "type": "string",
+            "nullable": true
+          },
+          "credit_card_last4": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "FinancialDashboard": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "$ref": "#/components/schemas/FinancialMetrics"
+          },
+          "properties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FinancialMetrics"
+            }
+          },
+          "legal_entities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LegalEntity"
+            }
+          }
+        }
+      },
+      "Unit": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "example": 1
+          },
+          "property_id": {
+            "type": "integer",
+            "format": "int64",
+            "example": 1
+          },
+          "unit_number": {
+            "type": "string",
+            "example": "MAIN"
+          },
+          "floor_plan_name": {
+            "type": "string",
+            "nullable": true,
+            "example": "3BR/1BA Classic"
+          },
+          "bedrooms": {
+            "type": "number",
+            "format": "double",
+            "example": 3
+          },
+          "bathrooms": {
+            "type": "number",
+            "format": "double",
+            "example": 1.5
+          },
+          "rentable_sq_ft": {
+            "type": "integer",
+            "example": 1150
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "OCCUPIED",
+              "VACANT_READY",
+              "VACANT_RENOVATION",
+              "NON_REVENUE_MODEL"
+            ]
+          },
+          "is_renovated": {
+            "type": "boolean"
+          },
+          "market_rent": {
+            "type": "number",
+            "format": "double",
+            "example": 2450
+          },
+          "in_place_rent": {
+            "type": "number",
+            "format": "double",
+            "example": 2300
+          },
+          "monthly_rubs_charge": {
+            "type": "number",
+            "format": "double",
+            "example": 75
+          },
+          "monthly_pet_rent": {
+            "type": "number",
+            "format": "double",
+            "example": 0
+          },
+          "monthly_parking_storage": {
+            "type": "number",
+            "format": "double",
+            "example": 0
+          },
+          "security_deposit": {
+            "type": "number",
+            "format": "double",
+            "example": 2300
+          },
+          "lease_start_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lease_end_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
       "UserResponse": {
         "type": "object",
         "properties": {

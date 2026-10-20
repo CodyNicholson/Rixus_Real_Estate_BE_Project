@@ -246,4 +246,16 @@ func TestLogoutReturnsCFTeamLogoutURL(t *testing.T) {
 	if want := "https://myteam.cloudflareaccess.com/cdn-cgi/access/logout"; body["cf_logout_url"] != want {
 		t.Fatalf("expected cf_logout_url %q, got %q", want, body["cf_logout_url"])
 	}
+
+	expired := map[string]bool{}
+	for _, c := range rec.Result().Cookies() {
+		if c.MaxAge < 0 && c.Path == "/" {
+			expired[c.Name] = true
+		}
+	}
+	for _, name := range []string{"CF_Authorization", "CF_Binding", "CF_Device", "CF_Session"} {
+		if !expired[name] {
+			t.Errorf("expected logout to expire the %s cookie", name)
+		}
+	}
 }

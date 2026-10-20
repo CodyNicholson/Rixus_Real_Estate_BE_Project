@@ -451,6 +451,21 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	// Access session lives on the team domain and would silently re-issue the same identity.
 	if s.CFValidator != nil && s.CFValidator.TeamDomain != "" {
 		resp["cf_logout_url"] = strings.TrimRight(s.CFValidator.TeamDomain, "/") + "/cdn-cgi/access/logout"
+		// The team-domain logout can't remove this hostname's Access cookies, and Access keeps accepting
+		// the revoked token for 20-30s, which silently signs the same user back in. Expire them here
+		// instead of calling the app-domain logout, which would revoke the token twice and fail.
+		for _, name := range []string{"CF_Authorization", "CF_Binding", "CF_Device", "CF_Session"} {
+			http.SetCookie(w, &http.Cookie{
+				Name:     name,
+				Value:    "",
+				Path:     "/",
+				Expires:  time.Unix(0, 0),
+				MaxAge:   -1,
+				HttpOnly: true,
+				Secure:   true,
+				SameSite: http.SameSiteLaxMode,
+			})
+		}
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

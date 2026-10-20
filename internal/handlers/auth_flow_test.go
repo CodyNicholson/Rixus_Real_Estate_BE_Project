@@ -229,3 +229,21 @@ func TestCORSAllowsListedOrigins(t *testing.T) {
 		t.Errorf("expected Access-Control-Allow-Origin: https://app.example.com, got %q", got)
 	}
 }
+
+func TestLogoutReturnsCFTeamLogoutURL(t *testing.T) {
+	s := &Server{
+		JWTSecret:   "0123456789abcdef0123456789abcdef",
+		CORSOrigin:  "http://localhost:3000",
+		CFValidator: auth.NewCFValidator("myteam.cloudflareaccess.com", "aud", ""),
+	}
+	rec := httptest.NewRecorder()
+	s.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil))
+
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if want := "https://myteam.cloudflareaccess.com/cdn-cgi/access/logout"; body["cf_logout_url"] != want {
+		t.Fatalf("expected cf_logout_url %q, got %q", want, body["cf_logout_url"])
+	}
+}

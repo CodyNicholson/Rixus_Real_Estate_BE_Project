@@ -446,6 +446,12 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 			SameSite: http.SameSiteLaxMode,
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "logged out"})
+	resp := map[string]string{"status": "logged out"}
+	// The app-domain /cdn-cgi/access/logout only clears this hostname's cookie; the global
+	// Access session lives on the team domain and would silently re-issue the same identity.
+	if s.CFValidator != nil && s.CFValidator.TeamDomain != "" {
+		resp["cf_logout_url"] = strings.TrimRight(s.CFValidator.TeamDomain, "/") + "/cdn-cgi/access/logout"
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 

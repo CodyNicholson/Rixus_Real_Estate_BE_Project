@@ -3,16 +3,18 @@ package handlers
 import (
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/CodyNicholson/Rixus_Real_Estate_BE_Project/internal/auth"
 )
 
 // UserResponse represents user profile data returned to clients.
 type UserResponse struct {
-	ID       int64  `json:"id"`
-	Name     string `json:"name"`
-	Email    string `json:"email"`
-	UserRole string `json:"user_role"`
+	ID        int64      `json:"id"`
+	Name      string     `json:"name"`
+	Email     string     `json:"email"`
+	UserRole  string     `json:"user_role"`
+	CreatedAt *time.Time `json:"created_at,omitempty"`
 }
 
 // registerUserRoutes registers endpoints on the user controller.

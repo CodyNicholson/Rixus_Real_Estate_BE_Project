@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CodyNicholson/Rixus_Real_Estate_BE_Project/internal/auth"
 )
@@ -177,6 +178,52 @@ func TestAdminPromoteEndpoint(t *testing.T) {
 	}
 }
 
+func TestAdminGetUsersEndpoint(t *testing.T) {
+	secret := "0123456789abcdef0123456789abcdef"
+	s := &Server{
+		JWTSecret:  secret,
+		CORSOrigin: "*",
+	}
+	handler := s.Routes()
+
+	// 1. Calling GET /api/admin/users without auth token returns 401 Unauthorized
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/users", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without auth token, got %d", rec.Code)
+	}
+
+	// 2. Calling with VIEWER token returns 403 Forbidden
+	viewerToken, err := auth.NewAccessToken(secret, 10, "viewer@example.com", "Viewer User", "VIEWER")
+	if err != nil {
+		t.Fatalf("failed to create viewer token: %v", err)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/api/admin/users", nil)
+	req.Header.Set("Authorization", "Bearer "+viewerToken)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when VIEWER calls get users endpoint, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "admin privileges required") {
+		t.Fatalf("expected error 'admin privileges required', got %s", rec.Body.String())
+	}
+
+	// 3. Calling with ADMIN token reaches DB check (returns 500 when DB is nil)
+	adminToken, err := auth.NewAccessToken(secret, 1, "admin@example.com", "Admin User", "ADMIN")
+	if err != nil {
+		t.Fatalf("failed to create admin token: %v", err)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/api/admin/users", nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), "database not configured") {
+		t.Fatalf("expected 500 'database not configured', got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestRegisterIgnoresUserRole(t *testing.T) {
 	s := &Server{
 		JWTSecret:    "0123456789abcdef0123456789abcdef",
@@ -236,4 +283,51 @@ func TestLoginRequiresCloudflareAccess(t *testing.T) {
 		t.Fatalf("expected 401 for spoofed header, got %d. Body: %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestUserResponseCreatedAtSerialization(t *testing.T) {
+	fixedTime := time.Date(2026, 10, 19, 20, 0, 0, 0, time.UTC)
+	uWithTime := UserResponse{
+		ID:        1,
+		Name:      "Admin User",
+		Email:     "admin@example.com",
+		UserRole:  "ADMIN",
+		CreatedAt: &fixedTime,
+	}
+
+	data, err := json.Marshal(uWithTime)
+	if err != nil {
+		t.Fatalf("failed to marshal UserResponse with CreatedAt: %v", err)
+	}
+
+	var m map[string]interface{}
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("failed to unmarshal JSON: %v", err)
+	}
+
+	if val, ok := m["created_at"]; !ok || val != "2026-10-19T20:00:00Z" {
+		t.Fatalf("expected created_at to be '2026-10-19T20:00:00Z', got %v", val)
+	}
+
+	uWithoutTime := UserResponse{
+		ID:       2,
+		Name:     "Viewer User",
+		Email:    "viewer@example.com",
+		UserRole: "VIEWER",
+	}
+
+	dataWithout, err := json.Marshal(uWithoutTime)
+	if err != nil {
+		t.Fatalf("failed to marshal UserResponse without CreatedAt: %v", err)
+	}
+
+	var mWithout map[string]interface{}
+	if err := json.Unmarshal(dataWithout, &mWithout); err != nil {
+		t.Fatalf("failed to unmarshal JSON: %v", err)
+	}
+
+	if _, ok := mWithout["created_at"]; ok {
+		t.Fatalf("expected created_at to be omitted when nil, but found %v", mWithout["created_at"])
+	}
+}
+
 

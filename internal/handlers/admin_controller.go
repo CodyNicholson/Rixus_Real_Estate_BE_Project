@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/CodyNicholson/Rixus_Real_Estate_BE_Project/internal/auth"
 	"github.com/jackc/pgx/v5"
@@ -19,8 +20,46 @@ type promoteRequest struct {
 
 // registerAdminRoutes registers endpoints on the admin controller.
 func (s *Server) registerAdminRoutes(mux *http.ServeMux, authMW func(http.Handler) http.Handler, adminMW func(http.Handler) http.Handler) {
+	mux.Handle("GET /api/admin/users", authMW(adminMW(http.HandlerFunc(s.listUsers))))
 	mux.Handle("POST /api/admin/promote", authMW(adminMW(http.HandlerFunc(s.promoteUser))))
 	mux.Handle("POST /api/admin/users/{id}/promote", authMW(adminMW(http.HandlerFunc(s.promoteUser))))
+}
+
+// listUsers retrieves all registered users. Only accessible by ADMINs.
+func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
+	if s.DB == nil {
+		writeErr(w, http.StatusInternalServerError, "database not configured")
+		return
+	}
+
+	rows, err := s.DB.Query(r.Context(),
+		`SELECT id, name, email, user_role, created_at FROM users ORDER BY id ASC`)
+	if err != nil {
+		log.Printf("listUsers: database query error: %v", err)
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	defer rows.Close()
+
+	users := []UserResponse{}
+	for rows.Next() {
+		var u UserResponse
+		var createdAt time.Time
+		if err := rows.Scan(&u.ID, &u.Name, &u.Email, &u.UserRole, &createdAt); err != nil {
+			log.Printf("listUsers: row scan error: %v", err)
+			writeErr(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		u.CreatedAt = &createdAt
+		users = append(users, u)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("listUsers: rows iteration error: %v", err)
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, users)
 }
 
 func (s *Server) adminMiddleware(next http.Handler) http.Handler {

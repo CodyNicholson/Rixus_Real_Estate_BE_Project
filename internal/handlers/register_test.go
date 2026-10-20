@@ -329,5 +329,3 @@ func TestUserResponseCreatedAtSerialization(t *testing.T) {
 		t.Fatalf("expected created_at to be omitted when nil, but found %v", mWithout["created_at"])
 	}
 }
-
-

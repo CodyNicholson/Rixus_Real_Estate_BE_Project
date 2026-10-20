@@ -83,17 +83,20 @@ func TestTenantInputValidate(t *testing.T) {
 	feb := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 
 	invalid := map[string]tenantInput{
-		"missing initials":     {MonthlyRent: floatp(1000)},
-		"blank initials":       {TenantInitials: "   ", MonthlyRent: floatp(1000)},
-		"initials too long":    {TenantInitials: "ABCDE", MonthlyRent: floatp(1000)},
-		"missing rent":         {TenantInitials: "AB"},
-		"negative rent":        {TenantInitials: "AB", MonthlyRent: floatp(-1)},
-		"rent too large":       {TenantInitials: "AB", MonthlyRent: floatp(1e10)},
-		"unit zero":            {TenantInitials: "AB", MonthlyRent: floatp(1000), UnitNumber: intp(0)},
-		"unit above units":     {TenantInitials: "AB", MonthlyRent: floatp(1000), UnitNumber: intp(5)},
-		"negative pets":        {TenantInitials: "AB", MonthlyRent: floatp(1000), PetCount: intp(-1)},
-		"too many pets":        {TenantInitials: "AB", MonthlyRent: floatp(1000), PetCount: intp(40000)},
-		"move out before move": {TenantInitials: "AB", MonthlyRent: floatp(1000), MoveInDate: &feb, MoveOutDate: &jan},
+		"missing initials":       {MonthlyRent: floatp(1000)},
+		"blank initials":         {TenantInitials: "   ", MonthlyRent: floatp(1000)},
+		"initials too long":      {TenantInitials: "ABCDE", MonthlyRent: floatp(1000)},
+		"missing rent":           {TenantInitials: "AB"},
+		"negative rent":          {TenantInitials: "AB", MonthlyRent: floatp(-1)},
+		"rent too large":         {TenantInitials: "AB", MonthlyRent: floatp(1e10)},
+		"unit zero":              {TenantInitials: "AB", MonthlyRent: floatp(1000), UnitNumber: intp(0)},
+		"unit above units":       {TenantInitials: "AB", MonthlyRent: floatp(1000), UnitNumber: intp(5)},
+		"negative pets":          {TenantInitials: "AB", MonthlyRent: floatp(1000), PetCount: intp(-1)},
+		"too many pets":          {TenantInitials: "AB", MonthlyRent: floatp(1000), PetCount: intp(40000)},
+		"move out before move":   {TenantInitials: "AB", MonthlyRent: floatp(1000), MoveInDate: &feb, MoveOutDate: &jan},
+		"lease end before start": {TenantInitials: "AB", MonthlyRent: floatp(1000), LeaseStartDate: &feb, LeaseEndDate: &jan},
+		"negative deposit":       {TenantInitials: "AB", MonthlyRent: floatp(1000), SecurityDeposit: floatp(-1)},
+		"deposit too large":      {TenantInitials: "AB", MonthlyRent: floatp(1000), SecurityDeposit: floatp(1e10)},
 	}
 	for name, in := range invalid {
 		if msg := in.validate(4); msg == "" {
@@ -101,12 +104,13 @@ func TestTenantInputValidate(t *testing.T) {
 		}
 	}
 
-	in := tenantInput{TenantInitials: " ÉLÉA ", MonthlyRent: floatp(1850.5), MoveInDate: &jan, MoveOutDate: &feb}
+	in := tenantInput{TenantInitials: " ÉLÉA ", MonthlyRent: floatp(1850.5), MoveInDate: &jan, MoveOutDate: &feb,
+		LeaseStartDate: &jan, LeaseEndDate: &feb}
 	if msg := in.validate(4); msg != "" {
 		t.Fatalf("expected valid input, got %q", msg)
 	}
-	if in.TenantInitials != "ÉLÉA" || *in.UnitNumber != 1 || *in.PetCount != 0 {
-		t.Fatalf("expected trimmed initials and defaults unit_number=1 pet_count=0, got %q %d %d",
-			in.TenantInitials, *in.UnitNumber, *in.PetCount)
+	if in.TenantInitials != "ÉLÉA" || *in.UnitNumber != 1 || *in.PetCount != 0 || *in.SecurityDeposit != 0 {
+		t.Fatalf("expected trimmed initials and defaults unit_number=1 pet_count=0 security_deposit=0, got %q %d %d %v",
+			in.TenantInitials, *in.UnitNumber, *in.PetCount, *in.SecurityDeposit)
 	}
 }

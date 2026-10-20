@@ -69,4 +69,3 @@ func TestSwaggerRoutes(t *testing.T) {
 		t.Fatalf("expected openapi version 3.0.3, got %v", spec["openapi"])
 	}
 }
-

@@ -1070,6 +1070,9 @@
           "pet_count": { "type": "integer", "example": 0 },
           "move_in_date": { "type": "string", "format": "date-time", "nullable": true, "example": "2026-01-01T00:00:00Z" },
           "move_out_date": { "type": "string", "format": "date-time", "nullable": true, "example": null },
+          "lease_start_date": { "type": "string", "format": "date-time", "nullable": true, "example": "2026-01-01T00:00:00Z" },
+          "lease_end_date": { "type": "string", "format": "date-time", "nullable": true, "example": "2026-12-31T00:00:00Z" },
+          "security_deposit": { "type": "number", "format": "double", "example": 1850.00 },
           "created_at": { "type": "string", "format": "date-time", "example": "2026-10-20T15:24:28Z" }
         }
       },
@@ -1085,7 +1088,10 @@
           "monthly_rent": { "type": "number", "format": "double", "minimum": 0, "maximum": 9999999999.99, "example": 1850.00 },
           "pet_count": { "type": "integer", "minimum": 0, "maximum": 32767, "default": 0, "example": 0 },
           "move_in_date": { "type": "string", "format": "date-time", "nullable": true, "example": "2026-01-01T00:00:00Z" },
-          "move_out_date": { "type": "string", "format": "date-time", "nullable": true, "example": null }
+          "move_out_date": { "type": "string", "format": "date-time", "nullable": true, "example": null },
+          "lease_start_date": { "type": "string", "format": "date-time", "nullable": true, "example": "2026-01-01T00:00:00Z" },
+          "lease_end_date": { "type": "string", "format": "date-time", "nullable": true, "example": "2026-12-31T00:00:00Z" },
+          "security_deposit": { "type": "number", "format": "double", "minimum": 0, "maximum": 9999999999.99, "default": 0, "example": 1850.00 }
         }
       },
       "ErrorResponse": {

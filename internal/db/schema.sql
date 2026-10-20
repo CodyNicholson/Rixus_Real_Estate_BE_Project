@@ -36,7 +36,17 @@ CREATE TABLE IF NOT EXISTS tenants (
     pet_count SMALLINT NOT NULL DEFAULT 0 CHECK (pet_count >= 0),
     move_in_date TIMESTAMPTZ,
     move_out_date TIMESTAMPTZ,
+    lease_start_date TIMESTAMPTZ,
+    lease_end_date TIMESTAMPTZ,
+    security_deposit NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (security_deposit >= 0),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- For existing databases, add lease dates
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS lease_start_date TIMESTAMPTZ;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS lease_end_date TIMESTAMPTZ;
+
+-- For existing databases, add security deposit
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS security_deposit NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (security_deposit >= 0);
 
 CREATE INDEX IF NOT EXISTS tenants_property_id_idx ON tenants(property_id);

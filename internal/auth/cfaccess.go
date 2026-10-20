@@ -259,4 +259,3 @@ func parseJWKKey(nStr, eStr string) (*rsa.PublicKey, error) {
 		E: eInt,
 	}, nil
 }
-

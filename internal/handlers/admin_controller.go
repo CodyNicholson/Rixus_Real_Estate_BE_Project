@@ -169,4 +169,3 @@ func (s *Server) promoteUser(w http.ResponseWriter, r *http.Request) {
 	log.Printf("promoteUser: user %d (%s) set to role %s by admin %d", u.ID, u.Email, u.UserRole, auth.UserID(r.Context()))
 	writeJSON(w, http.StatusOK, u)
 }
-

@@ -49,7 +49,6 @@ func TestAccessAndRefreshToken(t *testing.T) {
 	}
 }
 
-
 func TestParseAccessTokenClaims(t *testing.T) {
 	secret := "0123456789abcdef0123456789abcdef"
 	tok, err := NewAccessToken(secret, 55, "admin@example.com", "Admin User", "ADMIN")

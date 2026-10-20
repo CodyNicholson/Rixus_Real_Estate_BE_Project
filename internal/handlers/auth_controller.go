@@ -68,7 +68,7 @@ func (s *Server) setRefreshTokenCookie(w http.ResponseWriter, r *http.Request, r
 	http.SetCookie(w, &http.Cookie{
 		Name:     "refresh_token",
 		Value:    refreshToken,
-		Path:     "/api/refresh",       // Restrict cookie to the refresh endpoint only
+		Path:     "/api/refresh", // Restrict cookie to the refresh endpoint only
 		Expires:  time.Now().Add(auth.RefreshTokenDuration),
 		HttpOnly: true,                 // Prevents XSS from reading the cookie
 		Secure:   secure,               // Requires HTTPS (turn off in local dev HTTP)
@@ -469,4 +469,3 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
-

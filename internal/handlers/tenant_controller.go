@@ -15,32 +15,38 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// maxMonthlyRent is the largest value NUMERIC(12,2) can hold.
-const maxMonthlyRent = 9999999999.99
+// maxMoneyAmount is the largest value NUMERIC(12,2) can hold.
+const maxMoneyAmount = 9999999999.99
 
 type Tenant struct {
-	TenantID       int64      `json:"tenant_id"`
-	TenantInitials string     `json:"tenant_initials"`
-	PropertyID     int64      `json:"property_id"`
-	UnitNumber     int        `json:"unit_number"`
-	MonthlyRent    float64    `json:"monthly_rent"`
-	PetCount       int        `json:"pet_count"`
-	MoveInDate     *time.Time `json:"move_in_date"`
-	MoveOutDate    *time.Time `json:"move_out_date"`
-	CreatedAt      time.Time  `json:"created_at"`
+	TenantID        int64      `json:"tenant_id"`
+	TenantInitials  string     `json:"tenant_initials"`
+	PropertyID      int64      `json:"property_id"`
+	UnitNumber      int        `json:"unit_number"`
+	MonthlyRent     float64    `json:"monthly_rent"`
+	PetCount        int        `json:"pet_count"`
+	MoveInDate      *time.Time `json:"move_in_date"`
+	MoveOutDate     *time.Time `json:"move_out_date"`
+	LeaseStartDate  *time.Time `json:"lease_start_date"`
+	LeaseEndDate    *time.Time `json:"lease_end_date"`
+	SecurityDeposit float64    `json:"security_deposit"`
+	CreatedAt       time.Time  `json:"created_at"`
 }
 
 // tenantInput is the request body for creating or replacing a tenant.
 type tenantInput struct {
-	TenantInitials string     `json:"tenant_initials"`
-	UnitNumber     *int       `json:"unit_number"`
-	MonthlyRent    *float64   `json:"monthly_rent"`
-	PetCount       *int       `json:"pet_count"`
-	MoveInDate     *time.Time `json:"move_in_date"`
-	MoveOutDate    *time.Time `json:"move_out_date"`
+	TenantInitials  string     `json:"tenant_initials"`
+	UnitNumber      *int       `json:"unit_number"`
+	MonthlyRent     *float64   `json:"monthly_rent"`
+	PetCount        *int       `json:"pet_count"`
+	MoveInDate      *time.Time `json:"move_in_date"`
+	MoveOutDate     *time.Time `json:"move_out_date"`
+	LeaseStartDate  *time.Time `json:"lease_start_date"`
+	LeaseEndDate    *time.Time `json:"lease_end_date"`
+	SecurityDeposit *float64   `json:"security_deposit"`
 }
 
-const tenantColumns = `tenant_id, tenant_initials, property_id, unit_number, monthly_rent::float8, pet_count, move_in_date, move_out_date, created_at`
+const tenantColumns = `tenant_id, tenant_initials, property_id, unit_number, monthly_rent::float8, pet_count, move_in_date, move_out_date, lease_start_date, lease_end_date, security_deposit::float8, created_at`
 
 var errPropertyNotFound = errors.New("property not found")
 
@@ -57,7 +63,7 @@ func (s *Server) registerTenantRoutes(mux *http.ServeMux, authMW func(http.Handl
 func scanTenant(row pgx.Row) (Tenant, error) {
 	var t Tenant
 	err := row.Scan(&t.TenantID, &t.TenantInitials, &t.PropertyID, &t.UnitNumber, &t.MonthlyRent,
-		&t.PetCount, &t.MoveInDate, &t.MoveOutDate, &t.CreatedAt)
+		&t.PetCount, &t.MoveInDate, &t.MoveOutDate, &t.LeaseStartDate, &t.LeaseEndDate, &t.SecurityDeposit, &t.CreatedAt)
 	return t, err
 }
 
@@ -74,7 +80,7 @@ func (in *tenantInput) validate(propertyUnits int) string {
 	if *in.UnitNumber < 1 || *in.UnitNumber > propertyUnits {
 		return "unit_number must be between 1 and the property's unit count (" + strconv.Itoa(propertyUnits) + ")"
 	}
-	if in.MonthlyRent == nil || *in.MonthlyRent < 0 || *in.MonthlyRent > maxMonthlyRent || math.IsNaN(*in.MonthlyRent) {
+	if in.MonthlyRent == nil || *in.MonthlyRent < 0 || *in.MonthlyRent > maxMoneyAmount || math.IsNaN(*in.MonthlyRent) {
 		return "monthly_rent is required and must be between 0 and 9999999999.99"
 	}
 	if in.PetCount == nil {
@@ -84,8 +90,18 @@ func (in *tenantInput) validate(propertyUnits int) string {
 	if *in.PetCount < 0 || *in.PetCount > math.MaxInt16 {
 		return "pet_count must be between 0 and 32767"
 	}
+	if in.SecurityDeposit == nil {
+		zero := 0.0
+		in.SecurityDeposit = &zero
+	}
+	if *in.SecurityDeposit < 0 || *in.SecurityDeposit > maxMoneyAmount || math.IsNaN(*in.SecurityDeposit) {
+		return "security_deposit must be between 0 and 9999999999.99"
+	}
 	if in.MoveInDate != nil && in.MoveOutDate != nil && in.MoveOutDate.Before(*in.MoveInDate) {
 		return "move_out_date cannot be before move_in_date"
+	}
+	if in.LeaseStartDate != nil && in.LeaseEndDate != nil && in.LeaseEndDate.Before(*in.LeaseStartDate) {
+		return "lease_end_date cannot be before lease_start_date"
 	}
 	return ""
 }
@@ -233,9 +249,10 @@ func (s *Server) createTenant(w http.ResponseWriter, r *http.Request) {
 	}
 
 	t, err := scanTenant(s.DB.QueryRow(r.Context(),
-		`INSERT INTO tenants (tenant_initials, property_id, unit_number, monthly_rent, pet_count, move_in_date, move_out_date)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING `+tenantColumns,
-		in.TenantInitials, propID, *in.UnitNumber, *in.MonthlyRent, *in.PetCount, in.MoveInDate, in.MoveOutDate))
+		`INSERT INTO tenants (tenant_initials, property_id, unit_number, monthly_rent, pet_count, move_in_date, move_out_date, lease_start_date, lease_end_date, security_deposit)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING `+tenantColumns,
+		in.TenantInitials, propID, *in.UnitNumber, *in.MonthlyRent, *in.PetCount, in.MoveInDate, in.MoveOutDate,
+		in.LeaseStartDate, in.LeaseEndDate, *in.SecurityDeposit))
 	if err != nil {
 		log.Printf("createTenant: database insert error: %v", err)
 		writeErr(w, http.StatusInternalServerError, "internal error")
@@ -244,7 +261,7 @@ func (s *Server) createTenant(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, t)
 }
 
-// updateTenant replaces a tenant's fields; omitted unit_number/pet_count reset to their defaults
+// updateTenant replaces a tenant's fields; omitted unit_number/pet_count/security_deposit reset to their defaults
 // and omitted dates are cleared. The tenant stays on its property.
 func (s *Server) updateTenant(w http.ResponseWriter, r *http.Request) {
 	existing, units, ok := s.loadTenant(w, r, "updateTenant")
@@ -262,9 +279,11 @@ func (s *Server) updateTenant(w http.ResponseWriter, r *http.Request) {
 
 	t, err := scanTenant(s.DB.QueryRow(r.Context(),
 		`UPDATE tenants SET tenant_initials = $1, unit_number = $2, monthly_rent = $3, pet_count = $4,
-		 move_in_date = $5, move_out_date = $6
-		 WHERE tenant_id = $7 RETURNING `+tenantColumns,
-		in.TenantInitials, *in.UnitNumber, *in.MonthlyRent, *in.PetCount, in.MoveInDate, in.MoveOutDate, existing.TenantID))
+		 move_in_date = $5, move_out_date = $6, lease_start_date = $7, lease_end_date = $8,
+		 security_deposit = $9
+		 WHERE tenant_id = $10 RETURNING `+tenantColumns,
+		in.TenantInitials, *in.UnitNumber, *in.MonthlyRent, *in.PetCount, in.MoveInDate, in.MoveOutDate,
+		in.LeaseStartDate, in.LeaseEndDate, *in.SecurityDeposit, existing.TenantID))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeErr(w, http.StatusNotFound, "tenant not found")

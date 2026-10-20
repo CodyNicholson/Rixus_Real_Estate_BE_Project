@@ -40,4 +40,3 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, u)
 }
-

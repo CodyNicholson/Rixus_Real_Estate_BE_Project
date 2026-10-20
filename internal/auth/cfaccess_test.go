@@ -126,4 +126,3 @@ func TestCFValidator(t *testing.T) {
 		t.Error("expected error for empty token, got nil")
 	}
 }
-

@@ -142,4 +142,48 @@ func TestPropertyEndpointsAuthAndPermissions(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for invalid property id, got %d. Body: %s", rec.Code, rec.Body.String())
 	}
+
+	// 12. GET /api/portfolio/summary without token returns 401 Unauthorized
+	req = httptest.NewRequest(http.MethodGet, "/api/portfolio/summary", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for GET /api/portfolio/summary without token, got %d", rec.Code)
+	}
+
+	// 13. VIEWER (id=5) querying user 10 portfolio summary via /api/users/10/portfolio-summary returns 403 Forbidden
+	req = httptest.NewRequest(http.MethodGet, "/api/users/10/portfolio-summary", nil)
+	req.Header.Set("Authorization", "Bearer "+viewerToken5)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when VIEWER requests another user's portfolio summary, got %d", rec.Code)
+	}
+
+	// 14. VIEWER (id=5) querying user 10 portfolio summary via ?user_id=10 returns 403 Forbidden
+	req = httptest.NewRequest(http.MethodGet, "/api/portfolio/summary?user_id=10", nil)
+	req.Header.Set("Authorization", "Bearer "+viewerToken5)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when VIEWER requests another user's portfolio summary via query, got %d", rec.Code)
+	}
+
+	// 15. Invalid user id returns 400 Bad Request
+	req = httptest.NewRequest(http.MethodGet, "/api/users/abc/portfolio-summary", nil)
+	req.Header.Set("Authorization", "Bearer "+viewerToken5)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid user id in portfolio summary, got %d", rec.Code)
+	}
+
+	// 16. Authorized request without DB configured returns 500
+	req = httptest.NewRequest(http.MethodGet, "/api/portfolio/summary", nil)
+	req.Header.Set("Authorization", "Bearer "+viewerToken5)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 when DB is unconfigured, got %d", rec.Code)
+	}
 }

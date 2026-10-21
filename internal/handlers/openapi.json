@@ -269,6 +269,39 @@
         }
       }
     },
+    "/api/portfolio/summary": {
+      "get": {
+        "summary": "Aggregated summary of portfolio metrics for dashboard KPI cards",
+        "description": "Returns total asset value, monthly revenue, total units, occupied units, and occupancy rate for the caller's properties.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Portfolio summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "property_count": { "type": "integer" },
+                    "total_units": { "type": "integer" },
+                    "occupied_units": { "type": "integer" },
+                    "total_asset_value": { "type": "number" },
+                    "monthly_revenue": { "type": "number" },
+                    "occupancy_rate": { "type": "number" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
     "/api/properties": {
       "get": {
         "summary": "List user properties",

@@ -95,6 +95,8 @@ func (s *Server) registerPropertyRoutes(mux *http.ServeMux, authMW func(http.Han
 	mux.Handle("DELETE /api/properties/{id}", authMW(http.HandlerFunc(s.deleteProperty)))
 	mux.Handle("GET /api/users/{id}/properties", authMW(http.HandlerFunc(s.listProperties)))
 	mux.Handle("POST /api/users/{id}/properties", authMW(http.HandlerFunc(s.createProperty)))
+	mux.Handle("GET /api/portfolio/summary", authMW(http.HandlerFunc(s.portfolioSummary)))
+	mux.Handle("GET /api/users/{id}/portfolio-summary", authMW(http.HandlerFunc(s.portfolioSummary)))
 }
 
 func scanProperty(row pgx.Row) (Property, error) {
@@ -484,4 +486,124 @@ func (s *Server) deleteProperty(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// PortfolioSummary is the aggregated rollup of a user's portfolio metrics for dashboard KPI cards.
+type PortfolioSummary struct {
+	PropertyCount   int64   `json:"property_count"`
+	TotalUnits      int64   `json:"total_units"`
+	OccupiedUnits   int64   `json:"occupied_units"`
+	TotalAssetValue float64 `json:"total_asset_value"`
+	MonthlyRevenue  float64 `json:"monthly_revenue"`
+	OccupancyRate   float64 `json:"occupancy_rate"`
+}
+
+// portfolioSummary aggregates portfolio-level metrics (total asset value, monthly revenue,
+// occupied units count, total units, and occupancy rate) for the caller's properties.
+func (s *Server) portfolioSummary(w http.ResponseWriter, r *http.Request) {
+	callerID := auth.UserID(r.Context())
+	callerRole := auth.UserRole(r.Context())
+	targetUserID := callerID
+
+	if idStr := r.PathValue("id"); idStr != "" {
+		uid, ok := parsePositiveInt(idStr)
+		if !ok {
+			writeErr(w, http.StatusBadRequest, "invalid user id")
+			return
+		}
+		if callerID != uid && callerRole != "ADMIN" {
+			log.Printf("portfolioSummary: forbidden - caller %d (role %s) cannot access portfolio for user %d", callerID, callerRole, uid)
+			writeErr(w, http.StatusForbidden, "forbidden")
+			return
+		}
+		targetUserID = uid
+	} else if uidStr := r.URL.Query().Get("user_id"); uidStr != "" {
+		uid, ok := parsePositiveInt(uidStr)
+		if !ok {
+			writeErr(w, http.StatusBadRequest, "invalid user id")
+			return
+		}
+		if callerID != uid && callerRole != "ADMIN" {
+			log.Printf("portfolioSummary: forbidden - caller %d (role %s) cannot access portfolio for user %d", callerID, callerRole, uid)
+			writeErr(w, http.StatusForbidden, "forbidden")
+			return
+		}
+		targetUserID = uid
+	}
+
+	if s.DB == nil {
+		writeErr(w, http.StatusInternalServerError, "database not configured")
+		return
+	}
+
+	ctx := r.Context()
+	query := `
+WITH user_props AS (
+    SELECT 
+        p.id,
+        p.units,
+        COALESCE(NULLIF(p.after_repair_value, 0), NULLIF(p.purchase_price, 0), 0) AS asset_value
+    FROM properties p
+    WHERE p.user_id = $1 AND p.is_active = TRUE
+),
+tenant_agg AS (
+    SELECT 
+        t.property_id,
+        COUNT(DISTINCT t.unit_number) AS occupied_count,
+        COALESCE(SUM(t.monthly_rent), 0) AS monthly_revenue
+    FROM tenants t
+    JOIN user_props up ON up.id = t.property_id
+    WHERE (t.move_out_date IS NULL OR t.move_out_date > now())
+    GROUP BY t.property_id
+),
+unit_agg AS (
+    SELECT 
+        u.property_id,
+        COUNT(DISTINCT u.unit_number) AS occupied_count,
+        COALESCE(SUM(u.in_place_rent + u.monthly_rubs_charge + u.monthly_pet_rent + u.monthly_parking_storage), 0) AS monthly_revenue
+    FROM units u
+    JOIN user_props up ON up.id = u.property_id
+    WHERE u.status = 'OCCUPIED'
+    GROUP BY u.property_id
+),
+prop_stats AS (
+    SELECT 
+        up.id,
+        up.units,
+        up.asset_value,
+        LEAST(up.units::bigint, GREATEST(COALESCE(ta.occupied_count, 0)::bigint, COALESCE(ua.occupied_count, 0)::bigint)) AS occupied_units,
+        GREATEST(COALESCE(ta.monthly_revenue, 0)::float8, COALESCE(ua.monthly_revenue, 0)::float8) AS monthly_revenue
+    FROM user_props up
+    LEFT JOIN tenant_agg ta ON ta.property_id = up.id
+    LEFT JOIN unit_agg ua ON ua.property_id = up.id
+)
+SELECT 
+    COUNT(*)::bigint AS property_count,
+    COALESCE(SUM(units), 0)::bigint AS total_units,
+    COALESCE(SUM(occupied_units), 0)::bigint AS occupied_units,
+    COALESCE(SUM(asset_value), 0)::float8 AS total_asset_value,
+    COALESCE(SUM(monthly_revenue), 0)::float8 AS monthly_revenue,
+    CASE 
+        WHEN COALESCE(SUM(units), 0) > 0 
+        THEN ROUND((COALESCE(SUM(occupied_units), 0)::numeric / SUM(units)::numeric) * 100, 1)::float8
+        ELSE 0 
+    END AS occupancy_rate
+FROM prop_stats;`
+
+	var ps PortfolioSummary
+	err := s.DB.QueryRow(ctx, query, targetUserID).Scan(
+		&ps.PropertyCount,
+		&ps.TotalUnits,
+		&ps.OccupiedUnits,
+		&ps.TotalAssetValue,
+		&ps.MonthlyRevenue,
+		&ps.OccupancyRate,
+	)
+	if err != nil {
+		log.Printf("portfolioSummary: query error: %v", err)
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, ps)
 }

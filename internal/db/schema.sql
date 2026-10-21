@@ -129,6 +129,30 @@ CREATE TABLE IF NOT EXISTS units (
     UNIQUE (property_id, unit_number)
 );
 
+-- Multimedia and documents storage for PDFs, images, videos, audio, and contracts
+CREATE TABLE IF NOT EXISTS multimedia (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    property_id BIGINT REFERENCES properties(id) ON DELETE SET NULL,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    category VARCHAR(50) NOT NULL DEFAULT 'document',
+    media_type VARCHAR(50) NOT NULL DEFAULT 'pdf',
+    file_name VARCHAR(255) NOT NULL,
+    file_size BIGINT NOT NULL,
+    mime_type VARCHAR(120) NOT NULL,
+    file_path TEXT NOT NULL DEFAULT '',
+    file_data BYTEA,
+    is_template BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS multimedia_user_id_idx ON multimedia(user_id);
+CREATE INDEX IF NOT EXISTS multimedia_property_id_idx ON multimedia(property_id);
+CREATE INDEX IF NOT EXISTS multimedia_media_type_idx ON multimedia(media_type);
+CREATE INDEX IF NOT EXISTS multimedia_is_template_idx ON multimedia(is_template);
+
 -- Debt facilities: primary mortgages, interest-only bridge debt and seller financing
 CREATE TABLE IF NOT EXISTS property_loans (
     id BIGSERIAL PRIMARY KEY,

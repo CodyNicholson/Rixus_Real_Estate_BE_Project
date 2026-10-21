@@ -356,3 +356,4 @@ BEGIN
 
     RAISE NOTICE 'Migration 010 complete: populated 3 legal entities, 6 properties, 18 units, 15 active tenants, debt facilities, underwriting models, and 12-month ledger for rixusrealestate@gmail.com';
 END $$;
+

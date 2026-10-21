@@ -43,3 +43,4 @@ func SeedRixusRealEstateIfNotExists(ctx context.Context, pool *pgxpool.Pool) err
 	log.Printf("database: auto-seeding financial and tenant testing data for rixusrealestate@gmail.com")
 	return SeedRixusRealEstate(ctx, pool)
 }
+

@@ -120,3 +120,4 @@ func TestSeedRixusRealEstateDatabase(t *testing.T) {
 		t.Errorf("expected ledger transactions to be seeded, got 0")
 	}
 }
+

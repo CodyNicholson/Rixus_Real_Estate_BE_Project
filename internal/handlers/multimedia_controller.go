@@ -45,13 +45,58 @@ func (s *Server) registerDocumentRoutes(mux *http.ServeMux, authMW func(http.Han
 	mux.Handle("GET /api/documents", authMW(http.HandlerFunc(s.listDocuments)))
 	mux.Handle("POST /api/documents", authMW(http.HandlerFunc(s.uploadDocument)))
 	mux.Handle("GET /api/documents/{id}", authMW(http.HandlerFunc(s.getDocument)))
-	mux.Handle("GET /api/documents/{id}/download", authMW(http.HandlerFunc(s.downloadDocumentFile)))
-	mux.Handle("GET /api/documents/{id}/view", authMW(http.HandlerFunc(s.viewDocumentFile)))
+	mux.Handle("GET /api/documents/{id}/download", s.documentFileAuthMW(s.downloadDocumentFile))
+	mux.Handle("GET /api/documents/{id}/view", s.documentFileAuthMW(s.viewDocumentFile))
 	mux.Handle("DELETE /api/documents/{id}", authMW(http.HandlerFunc(s.deleteDocument)))
 
 	// Property-scoped aliases
 	mux.Handle("GET /api/properties/{id}/documents", authMW(http.HandlerFunc(s.listPropertyDocuments)))
 	mux.Handle("POST /api/properties/{id}/documents", authMW(http.HandlerFunc(s.uploadPropertyDocument)))
+}
+
+// documentFileAuthMW authenticates document file downloads and views.
+// It accepts Bearer header or ?token= / ?access_token= query parameters.
+// If no token is provided but the requested document is a statutory template, access is granted.
+func (s *Server) documentFileAuthMW(next http.HandlerFunc) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := r.Header.Get("Authorization")
+		tok, ok := strings.CutPrefix(h, "Bearer ")
+		if !ok || strings.TrimSpace(tok) == "" {
+			tok = r.URL.Query().Get("token")
+			if tok == "" {
+				tok = r.URL.Query().Get("access_token")
+			}
+			ok = tok != ""
+		}
+
+		if ok && tok != "" {
+			claims, err := auth.ParseAccessTokenClaims(s.JWTSecret, tok)
+			if err == nil {
+				id, err := strconv.ParseInt(claims.Subject, 10, 64)
+				if err == nil {
+					ctx := auth.WithUser(r.Context(), id, claims.UserRole)
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+			}
+		}
+
+		// If no valid user token provided, check if document is a template
+		idStr := r.PathValue("id")
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err == nil && id > 0 && s.DB != nil {
+			var isTemplate bool
+			err := s.DB.QueryRow(r.Context(), `SELECT is_template FROM multimedia WHERE id = $1`, id).Scan(&isTemplate)
+			if err == nil && isTemplate {
+				// Statutory template: allow unauthenticated download/preview
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+
+		log.Printf("auth: unauthorized access to document file %s %s", r.Method, r.URL.Path)
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+	})
 }
 
 // EnsureTemplateDocuments seeds the Illinois 2026 Lease Agreement and Form I-9 if missing.
@@ -501,7 +546,7 @@ func (s *Server) serveDocumentFile(w http.ResponseWriter, r *http.Request, inlin
 	}
 
 	// Permission check
-	if !isTemplate && userID != callerID && callerRole != "ADMIN" {
+	if !isTemplate && (callerID == 0 || (userID != callerID && callerRole != "ADMIN")) {
 		writeErr(w, http.StatusForbidden, "forbidden: you do not have permission to view this document")
 		return
 	}
@@ -601,3 +646,4 @@ func (s *Server) deleteDocument(w http.ResponseWriter, r *http.Request) {
 		"message": "document successfully deleted",
 	})
 }
+

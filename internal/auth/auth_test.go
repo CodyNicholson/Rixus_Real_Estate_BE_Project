@@ -1,6 +1,10 @@
 package auth
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
 
 func TestTokenRoundTrip(t *testing.T) {
 	secret := "0123456789abcdef0123456789abcdef"
@@ -68,5 +72,57 @@ func TestParseAccessTokenClaims(t *testing.T) {
 	}
 	if claims.Subject != "55" {
 		t.Errorf("expected subject 55, got %q", claims.Subject)
+	}
+}
+
+func TestMiddlewareWithBearerAndQueryToken(t *testing.T) {
+	secret := "0123456789abcdef0123456789abcdef"
+	tok, err := NewAccessToken(secret, 99, "user99@example.com", "User 99", "USER")
+	if err != nil {
+		t.Fatalf("failed to create access token: %v", err)
+	}
+
+	mw := Middleware(secret)
+	target := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := UserID(r.Context())
+		role := UserRole(r.Context())
+		if id != 99 || role != "USER" {
+			t.Errorf("expected id=99 role=USER, got id=%d role=%s", id, role)
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := mw(target)
+
+	// 1. Missing token -> 401
+	req, _ := http.NewRequest(http.MethodGet, "/test", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for missing token, got %d", rec.Code)
+	}
+
+	// 2. Bearer header -> 200
+	req, _ = http.NewRequest(http.MethodGet, "/test", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for Bearer header, got %d", rec.Code)
+	}
+
+	// 3. Query param ?token= -> 200
+	req, _ = http.NewRequest(http.MethodGet, "/test?token="+tok, nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for ?token= query param, got %d", rec.Code)
+	}
+
+	// 4. Query param ?access_token= -> 200
+	req, _ = http.NewRequest(http.MethodGet, "/test?access_token="+tok, nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for ?access_token= query param, got %d", rec.Code)
 	}
 }

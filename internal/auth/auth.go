@@ -118,12 +118,24 @@ func ParseToken(secret, token string) (int64, error) {
 }
 
 // Middleware requires a valid bearer access token and stores the user id and user role in the context.
+// For browser top-level requests (like downloading or viewing files in a new tab), it also falls back
+// to query parameter "token" or "access_token".
 func Middleware(secret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			h := r.Header.Get("Authorization")
 			tok, ok := strings.CutPrefix(h, "Bearer ")
-			if !ok {
+			if !ok || strings.TrimSpace(tok) == "" {
+				// Fallback to ?token= or ?access_token= query parameters
+				tok = r.URL.Query().Get("token")
+				if tok == "" {
+					tok = r.URL.Query().Get("access_token")
+				}
+				if tok != "" {
+					ok = true
+				}
+			}
+			if !ok || tok == "" {
 				log.Printf("auth: missing or malformed Bearer authorization header for %s %s", r.Method, r.URL.Path)
 				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 				return
@@ -140,11 +152,16 @@ func Middleware(secret string) func(http.Handler) http.Handler {
 				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 				return
 			}
-			ctx := context.WithValue(r.Context(), ctxKey{}, id)
-			ctx = context.WithValue(ctx, roleCtxKey{}, claims.UserRole)
+			ctx := WithUser(r.Context(), id, claims.UserRole)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// WithUser adds the authenticated user ID and role to the context.
+func WithUser(ctx context.Context, id int64, role string) context.Context {
+	ctx = context.WithValue(ctx, ctxKey{}, id)
+	return context.WithValue(ctx, roleCtxKey{}, role)
 }
 
 func UserID(ctx context.Context) int64 {

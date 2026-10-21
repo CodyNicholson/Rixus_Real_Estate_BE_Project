@@ -129,3 +129,50 @@ func TestClassifyMediaType(t *testing.T) {
 		}
 	}
 }
+
+func TestDocumentFileAuthMW(t *testing.T) {
+	secret := "0123456789abcdef0123456789abcdef"
+	s := &Server{
+		JWTSecret:  secret,
+		CORSOrigin: "http://localhost:3000",
+	}
+	handler := s.Routes()
+
+	// 1. GET /api/documents/1/view without token returns 401
+	req := httptest.NewRequest(http.MethodGet, "/api/documents/1/view", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for GET /api/documents/1/view without token, got %d", rec.Code)
+	}
+
+	// 2. GET /api/documents/1/download without token returns 401
+	req = httptest.NewRequest(http.MethodGet, "/api/documents/1/download", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for GET /api/documents/1/download without token, got %d", rec.Code)
+	}
+
+	// 3. GET /api/documents/1/view with ?token= query parameter authenticates (reaches handler: 404 with no DB, not 401)
+	token, err := auth.NewAccessToken(secret, 1, "test@example.com", "Test User", "USER")
+	if err != nil {
+		t.Fatalf("failed to create access token: %v", err)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/documents/1/view?token="+token, nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 (authenticated, but document not in mock DB) for GET /api/documents/1/view?token=..., got %d", rec.Code)
+	}
+
+	// 4. GET /api/documents/1/download with ?access_token= query parameter authenticates
+	req = httptest.NewRequest(http.MethodGet, "/api/documents/1/download?access_token="+token, nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 (authenticated, but document not in mock DB) for GET /api/documents/1/download?access_token=..., got %d", rec.Code)
+	}
+}
+

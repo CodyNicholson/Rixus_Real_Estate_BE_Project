@@ -175,4 +175,3 @@ func TestDocumentFileAuthMW(t *testing.T) {
 		t.Fatalf("expected 404 (authenticated, but document not in mock DB) for GET /api/documents/1/download?access_token=..., got %d", rec.Code)
 	}
 }
-

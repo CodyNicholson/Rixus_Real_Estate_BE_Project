@@ -26,12 +26,14 @@ Spins up both the Go app and a Postgres container in one command:
 
 Tables are created on startup (`internal/db/schema.sql`, mirrored in `migrations/`).
 
-Sample financial data (3 legal entities, 6 properties with rent rolls, loans, pro forma models and 12 months of
-ledger actuals) can be loaded with the optional seed script. By default it seeds the test users
-`codynicholson96@gmail.com` and `developer@rixus.com` (an email with no user yet is skipped, so log in first).
-Re-running it replaces the previous sample rows:
+Comprehensive testing data for `rixusrealestate@gmail.com` (ADMIN user, 3 legal entities, 6 properties, 18 units, 15 active & historical tenants, debt facilities, underwriting pro forma models, and 12 months of ledger actuals) is automatically seeded on startup via migration 010 (`internal/db/seed_010.sql`). It can also be re-run manually at any time via psql:
 
-    docker exec -i rixus-be-db psql -U postgres -d rixus -v ON_ERROR_STOP=1 \
+    docker exec -i rixus-dev-db psql -U postgres -d rixus -v ON_ERROR_STOP=1 \
+      < migrations/010_populate_rixusrealestate_testing_data.sql
+
+Sample financial data for legacy test users (`codynicholson96@gmail.com` and `developer@rixus.com`) can also be loaded with migration 009:
+
+    docker exec -i rixus-dev-db psql -U postgres -d rixus -v ON_ERROR_STOP=1 \
       < migrations/009_seed_financial_sample_data.sql
 
 Pass `-v owner_email=you@example.com` to seed a single user instead.

@@ -646,4 +646,3 @@ func (s *Server) deleteDocument(w http.ResponseWriter, r *http.Request) {
 		"message": "document successfully deleted",
 	})
 }
-

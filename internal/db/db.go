@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	_ "embed"
+	"log"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -22,6 +23,10 @@ func Connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	if _, err := pool.Exec(ctx, schema); err != nil {
 		pool.Close()
 		return nil, err
+	}
+	// Ensure testing data for rixusrealestate@gmail.com is seeded
+	if err := SeedRixusRealEstateIfNotExists(ctx, pool); err != nil {
+		log.Printf("database: notice during rixusrealestate seed: %v", err)
 	}
 	return pool, nil
 }

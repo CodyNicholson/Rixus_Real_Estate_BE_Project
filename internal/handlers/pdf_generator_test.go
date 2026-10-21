@@ -50,4 +50,3 @@ func TestGenerateI9FormPDF(t *testing.T) {
 		t.Fatalf("expected USCIS Form I-9 text in stream")
 	}
 }
-

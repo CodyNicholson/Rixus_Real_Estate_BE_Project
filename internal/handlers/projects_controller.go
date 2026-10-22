@@ -135,17 +135,6 @@ func (s *Server) projectImageAuthMW(next http.HandlerFunc) http.Handler {
 			}
 		}
 
-		// In development mode, allow if dev auth enabled
-		if s.AllowDevAuth && s.DevCFEmail != "" && s.DB != nil {
-			var userID int64
-			var userRole string
-			if err := s.DB.QueryRow(r.Context(), "SELECT id, user_role FROM users WHERE email = $1", s.DevCFEmail).Scan(&userID, &userRole); err == nil {
-				ctx := auth.WithUser(r.Context(), userID, userRole)
-				next.ServeHTTP(w, r.WithContext(ctx))
-				return
-			}
-		}
-
 		writeErr(w, http.StatusUnauthorized, "unauthorized")
 	})
 }

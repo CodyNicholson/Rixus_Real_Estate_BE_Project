@@ -39,6 +39,12 @@ DECLARE
     v_u8 BIGINT;
     v_doc_pdf BYTEA;
     v_doc_jpg BYTEA;
+    v_c_apex BIGINT;
+    v_c_midwest BIGINT;
+    v_c_lakefront BIGINT;
+    v_c_windy BIGINT;
+    v_c_allstar BIGINT;
+    v_prj BIGINT;
 BEGIN
     -- 1. Ensure user developer@rixus.com exists with ADMIN permissions
     SELECT id INTO v_user_id FROM users WHERE email = 'developer@rixus.com';
@@ -53,6 +59,9 @@ BEGIN
     END IF;
 
     -- 2. Clean up previous test data for this user to make script 100% idempotent
+    DELETE FROM project_images WHERE user_id = v_user_id;
+    DELETE FROM projects WHERE user_id = v_user_id;
+    DELETE FROM contractors WHERE user_id = v_user_id;
     DELETE FROM ledger_transactions WHERE property_id IN (SELECT id FROM properties WHERE user_id = v_user_id);
     DELETE FROM underwriting_models WHERE property_id IN (SELECT id FROM properties WHERE user_id = v_user_id);
     DELETE FROM property_loans WHERE property_id IN (SELECT id FROM properties WHERE user_id = v_user_id);
@@ -584,5 +593,126 @@ startxref
         'Master operating agreement establishing statutory separation of liabilities across property series cells.',
         'legal', 'pdf', 'rixus_series_llc_operating_agreement.pdf', octet_length(v_doc_pdf), 'application/pdf', v_doc_pdf, FALSE);
 
-    RAISE NOTICE 'Migration 011 complete: seeded 4 legal entities, 10 properties, 32 units, 27 tenants, 10 loans, 10 underwriting models, 12-month ledger, and 8 multimedia records for developer@rixus.com';
+    -- =========================================================================
+    -- CONTRACTORS
+    -- =========================================================================
+    INSERT INTO contractors (user_id, name, contact_person, phone, email, specialty, service_area, hourly_rate, rating, notes, is_active)
+    VALUES (v_user_id, 'Apex Concrete & Masonry', 'Tony Bianchi', '(312) 555-0142', 'tony@apexconcretechicago.com',
+        'Masonry & Concrete', 'North Side / Lincoln Park / Evanston', 95.00, 4.9, 'Master mason with 22 years commercial concrete & historic tuckpointing experience. Certified Cook County licensed.', TRUE)
+    RETURNING id INTO v_c_apex;
+
+    INSERT INTO contractors (user_id, name, contact_person, phone, email, specialty, service_area, hourly_rate, rating, notes, is_active)
+    VALUES (v_user_id, 'Midwest Premier Remodeling', 'Sarah Jenkins', '(312) 555-0188', 'sarah@midwestpremier.com',
+        'General Remodeling & Bathrooms', 'Cook County / Chicagoland Area', 85.00, 4.8, 'Specializes in high-end bathroom gut rehabs, kitchen upgrades, and luxury multi-family turnovers.', TRUE)
+    RETURNING id INTO v_c_midwest;
+
+    INSERT INTO contractors (user_id, name, contact_person, phone, email, specialty, service_area, hourly_rate, rating, notes, is_active)
+    VALUES (v_user_id, 'Lakefront Window & Glazing', 'David Chen', '(312) 555-0233', 'dchen@lakefrontglazing.com',
+        'Windows & Glass Replacement', 'Chicago - Loop / West Loop / River North', 90.00, 4.7, 'Commercial and residential architectural window replacement, argon soundproofing, historic landmark compliance.', TRUE)
+    RETURNING id INTO v_c_lakefront;
+
+    INSERT INTO contractors (user_id, name, contact_person, phone, email, specialty, service_area, hourly_rate, rating, notes, is_active)
+    VALUES (v_user_id, 'Windy City Garage Builders LLC', 'Marcus Rodriguez', '(773) 555-0199', 'marcus@windycitygarages.com',
+        'Garage Construction & Framing', 'Chicago & Near West Suburbs', 105.00, 4.9, 'Custom multi-car cinderblock and timber garages, concrete footings, motorized rollups, EV charger subpanels.', TRUE)
+    RETURNING id INTO v_c_windy;
+
+    INSERT INTO contractors (user_id, name, contact_person, phone, email, specialty, service_area, hourly_rate, rating, notes, is_active)
+    VALUES (v_user_id, 'All-Star Plumbing & Mechanical', 'Jim O''Malley', '(312) 555-0177', 'service@allstarplumbingchi.com',
+        'Plumbing & Mechanical', 'Greater Chicago Area', 110.00, 4.8, 'Master plumber, boiler systems, cold-climate inverter heat pumps, rough-in plumbing and sewer scoping.', TRUE)
+    RETURNING id INTO v_c_allstar;
+
+    -- =========================================================================
+    -- PROJECTS & MAINTENANCE ISSUES
+    -- =========================================================================
+
+    -- Issue 1: Fix crack in Driveway concrete (Lincoln Park 3-Flat)
+    SELECT id INTO v_prop FROM properties WHERE user_id = v_user_id AND parcel_pin = 'DEV-14-32-108-015';
+    INSERT INTO projects (user_id, property_id, contractor_id, title, description, category, priority, status, date_identified, date_started, date_completed, estimated_cost, actual_cost)
+    VALUES (v_user_id, v_prop, v_c_apex, 'Fix crack in Driveway concrete',
+        'Extensive frost heave fissure and settling cracks along main driveway apron. Requires hydraulic cement patch, diamond grinding, and polyaspartic expansion joint sealing to prevent winter water infiltration.',
+        'REPAIR', 'HIGH', 'OPEN', '2026-09-15', NULL, NULL, 2400.00, 0.00)
+    RETURNING id INTO v_prj;
+
+    INSERT INTO project_images (project_id, user_id, caption, file_name, file_size, mime_type, file_data)
+    VALUES (v_prj, v_user_id, 'Driveway concrete frost crack close-up', 'driveway_crack_photo.jpeg', octet_length(v_doc_jpg), 'image/jpeg', v_doc_jpg);
+
+    -- Issue 2: Remodel shower (Wicker Park 4-Flat)
+    SELECT id INTO v_prop FROM properties WHERE user_id = v_user_id AND parcel_pin = 'DEV-17-06-214-022';
+    INSERT INTO projects (user_id, property_id, contractor_id, title, description, category, priority, status, date_identified, date_started, date_completed, estimated_cost, actual_cost)
+    VALUES (v_user_id, v_prop, v_c_midwest, 'Remodel shower',
+        'Replace leaking fiberglass insert in 2nd floor bathroom with floor-to-ceiling porcelain subway tile, frameless glass pivot door, Delta matte black shower valve, and Schluter waterproof pan system.',
+        'CAPEX_RENOVATION', 'HIGH', 'IN_PROGRESS', '2026-08-20', '2026-09-02', NULL, 6500.00, 4200.00)
+    RETURNING id INTO v_prj;
+
+    INSERT INTO project_images (project_id, user_id, caption, file_name, file_size, mime_type, file_data)
+    VALUES (v_prj, v_user_id, 'Shower demo & waterproofing progress', 'shower_remodel_progress.jpeg', octet_length(v_doc_jpg), 'image/jpeg', v_doc_jpg);
+
+    -- Issue 3: Build Garage (Logan Square 6-Unit)
+    SELECT id INTO v_prop FROM properties WHERE user_id = v_user_id AND parcel_pin = 'DEV-13-25-419-011';
+    INSERT INTO projects (user_id, property_id, contractor_id, title, description, category, priority, status, date_identified, date_started, date_completed, estimated_cost, actual_cost)
+    VALUES (v_user_id, v_prop, v_c_windy, 'Build Garage',
+        'Erect new detached 4-car cinderblock garage with reinforced concrete slab, dual motorized overhead roll-up doors, 100A subpanel for EV charging, and exterior LED floodlighting for tenant parking rentals.',
+        'IMPROVEMENT', 'MEDIUM', 'OPEN', '2026-07-10', NULL, NULL, 38000.00, 0.00)
+    RETURNING id INTO v_prj;
+
+    INSERT INTO project_images (project_id, user_id, caption, file_name, file_size, mime_type, file_data)
+    VALUES (v_prj, v_user_id, 'Proposed garage location site layout', 'garage_site_plan.jpeg', octet_length(v_doc_jpg), 'image/jpeg', v_doc_jpg);
+
+    -- Issue 4: Replace Windows (South Loop Boutique Mid-Rise)
+    SELECT id INTO v_prop FROM properties WHERE user_id = v_user_id AND parcel_pin = 'DEV-17-22-104-033';
+    INSERT INTO projects (user_id, property_id, contractor_id, title, description, category, priority, status, date_identified, date_started, date_completed, estimated_cost, actual_cost)
+    VALUES (v_user_id, v_prop, v_c_lakefront, 'Replace Windows',
+        'Replace 14 failing single-pane wood frame windows on north facade with high-performance double-hung Argon-insulated soundproof vinyl windows with Low-E thermal coating.',
+        'MAINTENANCE', 'URGENT', 'IN_PROGRESS', '2026-09-01', '2026-09-18', NULL, 14500.00, 7000.00)
+    RETURNING id INTO v_prj;
+
+    INSERT INTO project_images (project_id, user_id, caption, file_name, file_size, mime_type, file_data)
+    VALUES (v_prj, v_user_id, 'Deteriorated window frame exterior', 'window_damage_photo.jpeg', octet_length(v_doc_jpg), 'image/jpeg', v_doc_jpg);
+
+    -- Issue 5: Gut Remodel Bathroom (Evanston Value-Add Duplex)
+    SELECT id INTO v_prop FROM properties WHERE user_id = v_user_id AND parcel_pin = 'DEV-10-18-305-014';
+    INSERT INTO projects (user_id, property_id, contractor_id, title, description, category, priority, status, date_identified, date_started, date_completed, estimated_cost, actual_cost)
+    VALUES (v_user_id, v_prop, v_c_midwest, 'Gut Remodel Bathroom',
+        'Complete down-to-studs bathroom renovation: new copper supply lines, cast iron tub removal, 60-inch double vanity with quartz countertop, LED anti-fog mirror, and porcelain tile surround.',
+        'CAPEX_RENOVATION', 'HIGH', 'IN_PROGRESS', '2026-08-05', '2026-08-25', NULL, 16000.00, 9500.00)
+    RETURNING id INTO v_prj;
+
+    INSERT INTO project_images (project_id, user_id, caption, file_name, file_size, mime_type, file_data)
+    VALUES (v_prj, v_user_id, 'Bathroom framing & rough plumbing', 'bathroom_gut_progress.jpeg', octet_length(v_doc_jpg), 'image/jpeg', v_doc_jpg);
+
+    -- Issue 6: Tuckpointing and Masonry Parapet Repair (Fulton Market Mixed-Use)
+    SELECT id INTO v_prop FROM properties WHERE user_id = v_user_id AND parcel_pin = 'DEV-17-08-410-019';
+    INSERT INTO projects (user_id, property_id, contractor_id, title, description, category, priority, status, date_identified, date_started, date_completed, estimated_cost, actual_cost)
+    VALUES (v_user_id, v_prop, v_c_apex, 'Tuckpointing and Masonry Parapet Repair',
+        'Grind and repoint deteriorated mortar joints along east brick wall and rebuild loose limestone coping stones along parapet roofline.',
+        'MAINTENANCE', 'MEDIUM', 'COMPLETED', '2026-05-12', '2026-06-01', '2026-06-22', 8500.00, 8250.00)
+    RETURNING id INTO v_prj;
+
+    INSERT INTO project_images (project_id, user_id, caption, file_name, file_size, mime_type, file_data)
+    VALUES (v_prj, v_user_id, 'Completed parapet masonry tuckpointing', 'tuckpoint_complete.jpeg', octet_length(v_doc_jpg), 'image/jpeg', v_doc_jpg);
+
+    -- Issue 7: HVAC Heat Pump Replacement (Oak Park Prairie Home)
+    SELECT id INTO v_prop FROM properties WHERE user_id = v_user_id AND parcel_pin = 'DEV-16-07-312-008';
+    INSERT INTO projects (user_id, property_id, contractor_id, title, description, category, priority, status, date_identified, date_started, date_completed, estimated_cost, actual_cost)
+    VALUES (v_user_id, v_prop, v_c_allstar, 'HVAC Heat Pump Replacement',
+        'Decommission 22-year-old gas furnace and install high-efficiency Carrier 4-ton cold-climate inverter heat pump system with Ecobee smart thermostat.',
+        'CAPEX_RENOVATION', 'MEDIUM', 'COMPLETED', '2026-04-10', '2026-04-22', '2026-04-28', 9200.00, 9100.00)
+    RETURNING id INTO v_prj;
+
+    INSERT INTO project_images (project_id, user_id, caption, file_name, file_size, mime_type, file_data)
+    VALUES (v_prj, v_user_id, 'Installed outdoor inverter condenser unit', 'heat_pump_installed.jpeg', octet_length(v_doc_jpg), 'image/jpeg', v_doc_jpg);
+
+    -- Issue 8: Balcony Railing Refinishing & Sealant (West Loop Luxury Condo)
+    SELECT id INTO v_prop FROM properties WHERE user_id = v_user_id AND parcel_pin = 'DEV-17-17-302-045-1052';
+    INSERT INTO projects (user_id, property_id, contractor_id, title, description, category, priority, status, date_identified, date_started, date_completed, estimated_cost, actual_cost)
+    VALUES (v_user_id, v_prop, v_c_midwest, 'Balcony Railing Refinishing & Sealant',
+        'Sandblast surface rust from wrought iron balcony railings, apply rust-inhibiting primer, dual coat satin black enamel, and inspect anchor bolts.',
+        'MAINTENANCE', 'LOW', 'OPEN', '2026-09-25', NULL, NULL, 1200.00, 0.00)
+    RETURNING id INTO v_prj;
+
+    INSERT INTO project_images (project_id, user_id, caption, file_name, file_size, mime_type, file_data)
+    VALUES (v_prj, v_user_id, 'Balcony railing before refinishing', 'balcony_railing_photo.jpeg', octet_length(v_doc_jpg), 'image/jpeg', v_doc_jpg);
+
+    RAISE NOTICE 'Migration 011 complete: seeded 4 legal entities, 10 properties, 32 units, 27 tenants, 10 loans, 10 underwriting models, 12-month ledger, 8 multimedia records, 5 contractors, and 8 projects for developer@rixus.com';
 END $$;
+

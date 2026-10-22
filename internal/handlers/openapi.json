@@ -302,6 +302,48 @@
         }
       }
     },
+    "/api/projects": {
+      "get": {
+        "summary": "List maintenance projects and issues",
+        "description": "Returns open maintenance issues and capital projects across portfolio properties",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "List of projects and issues" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      },
+      "post": {
+        "summary": "Create project or maintenance issue",
+        "description": "Logs an issue (e.g. concrete crack, remodel shower, build garage, replace windows) for a property",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "201": { "description": "Project created" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/contractors": {
+      "get": {
+        "summary": "List contractors and trade professionals",
+        "description": "Returns active contractors, specialties, service areas, and past jobs worked on",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "List of contractors" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      },
+      "post": {
+        "summary": "Create contractor",
+        "description": "Registers a new contractor with trade specialty and operating service area",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "201": { "description": "Contractor created" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
     "/api/documents": {
       "get": {
         "summary": "List documents and multimedia",
